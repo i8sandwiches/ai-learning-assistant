@@ -34,7 +34,6 @@ const initialState: AppState = {
 };
 
 const subjects = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
-const storageKey = "ai-learning-assistant-state-v1";
 
 type TabId = "overview" | "materials" | "notes" | "timer" | "stats";
 
@@ -46,7 +45,7 @@ export default function Home() {
   const [noteDraft, setNoteDraft] = useState({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
   const [uploadStatus, setUploadStatus] = useState("학습 자료를 업로드하면 AI 요약을 바로 생성합니다.");
   const [isSummarizing, setIsSummarizing] = useState(false);
-  const [storageStatus, setStorageStatus] = useState("로컬 보조 저장");
+  const [storageStatus, setStorageStatus] = useState("MongoDB 대기 중");
   const [timerType, setTimerType] = useState<TimerType>("STOPWATCH");
   const [timerSubject, setTimerSubject] = useState("전공");
   const [seconds, setSeconds] = useState(0);
@@ -54,17 +53,8 @@ export default function Home() {
   const timerStartRef = useRef<Date | null>(null);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(storageKey);
-    if (saved) {
-      setState(JSON.parse(saved) as AppState);
-    }
-
     void syncGoogleSession();
   }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [state]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -108,7 +98,7 @@ export default function Home() {
         }
       } catch {
         if (!cancelled) {
-          setStorageStatus("로컬 보조 저장");
+          setStorageStatus("MongoDB 연결 실패");
         }
       }
     }
@@ -273,7 +263,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Store request failed");
       setStorageStatus("MongoDB 연결됨");
     } catch {
-      setStorageStatus("로컬 보조 저장");
+      setStorageStatus("MongoDB 저장 실패");
     }
   }
 
