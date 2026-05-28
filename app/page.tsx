@@ -709,12 +709,21 @@ function Overview({
   const ankiPct = ankiTotal ? Math.round((ankiDone / ankiTotal) * 100) : 0;
 
   return (
+<<<<<<< HEAD
     <div className="overview-grid">
       <div className="overview-main">
         <section className="panel">
           <div className="panel-head">
             <h3 className="panel-title">최근 학습 기록</h3>
             <span className="panel-meta">최신 5개</span>
+=======
+    <div className="overview-layout">
+      <div className="overview-main">
+        <section className="panel">
+          <div className="section-heading">
+            <h3>최근 학습 기록</h3>
+            <span>{sessions.length}개 세션</span>
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
           </div>
           <SessionList sessions={sessions.slice(0, 5)} />
           <div className="inline-actions" style={{ marginTop: 16 }}>
@@ -725,6 +734,7 @@ function Overview({
         <CalendarWidget sessions={sessions} />
       </div>
 
+<<<<<<< HEAD
       <aside className="rail">
         <CharacterCard character={character} />
 
@@ -749,6 +759,32 @@ function Overview({
           <div className="anki-foot">
             <div className="anki-progress"><i style={{ width: `${ankiPct}%` }} /></div>
             <button className="anki-cta" type="button" onClick={onGoAnki}>
+=======
+      <aside className="overview-rail">
+        <CharacterCard character={character} />
+
+        <section className="panel rail-stats">
+          <h4>오늘 / 누적</h4>
+          <div className="ts-row"><span>오늘 학습</span><strong>{formatMinutes(todayMinutes)}</strong></div>
+          <div className="ts-row"><span>이번 주</span><strong>{formatMinutes(weekMinutes)}</strong></div>
+          <div className="ts-row"><span>총 학습 시간</span><strong>{formatMinutes(totalMinutes)}</strong></div>
+          <div className="ts-row"><span>연속 학습</span><strong>{streak}일</strong></div>
+        </section>
+
+        <section className="panel anki-widget">
+          <div className="aw-head">
+            <div className="aw-title"><span className="dot" />ANKI 스케줄러</div>
+            <div className="aw-due">오늘 마감 · 23:59</div>
+          </div>
+          <div className="aw-counts">
+            <div className="aw-count new"><span className="n">{totalAnkiNew}</span><span className="l">신규</span></div>
+            <div className="aw-count learn"><span className="n">{totalAnkiLearn}</span><span className="l">학습 중</span></div>
+            <div className="aw-count due"><span className="n">{totalAnkiReview}</span><span className="l">복습</span></div>
+          </div>
+          <div className="aw-foot">
+            <div className="aw-progress"><i style={{ width: `${ankiPct}%` }} /></div>
+            <button className="primary-button" style={{ width: "100%", marginTop: 10 }} onClick={onGoAnki}>
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
               복습 시작 →
             </button>
           </div>
@@ -786,6 +822,7 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
   for (let i = 0; i < trailing; i++) cells.push(<div key={`t${i}`} className="cal-cell empty" />);
 
   return (
+<<<<<<< HEAD
     <section className="panel">
       <div className="cal-head">
         <h3 className="panel-title">{year}년 {month + 1}월</h3>
@@ -793,6 +830,15 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
           <button className="cal-btn" aria-label="이전 달" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>‹</button>
           <button className="cal-btn today-btn" onClick={() => setCalDate(new Date())}>오늘</button>
           <button className="cal-btn" aria-label="다음 달" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>›</button>
+=======
+    <section className="panel" style={{ marginTop: 16 }}>
+      <div className="cal-head">
+        <h3 className="section-heading" style={{ margin: 0 }}>{year}년 {month + 1}월</h3>
+        <div className="cal-nav">
+          <button className="cal-btn" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>‹</button>
+          <button className="cal-btn" onClick={() => setCalDate(new Date())}>오늘</button>
+          <button className="cal-btn" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>›</button>
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
         </div>
       </div>
       <div className="cal">
@@ -803,6 +849,7 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
   );
 }
 
+<<<<<<< HEAD
 function ActivityHeatmap({ sessions }: { sessions: StudySession[] }) {
   const [view, setView] = useState<HeatView>("year");
   const [refDate, setRefDate] = useState(() => new Date());
@@ -950,6 +997,8 @@ function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+=======
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
 function MaterialsView({
   summaries,
   materials,

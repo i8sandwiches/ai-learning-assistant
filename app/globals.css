@@ -848,6 +848,7 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 /* ============================================================
    Overview layout
    ============================================================ */
+<<<<<<< HEAD
 .page-header {
   display: flex;
   align-items: stretch;
@@ -1092,6 +1093,25 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
   box-shadow: var(--shadow);
 }
 .today-stats h4 { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+=======
+.overview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+  align-items: start;
+}
+
+.overview-main { display: flex; flex-direction: column; }
+
+.overview-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Rail stats */
+.rail-stats h4 { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
 .ts-row {
   display: flex;
   justify-content: space-between;
@@ -1102,6 +1122,7 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 }
 .ts-row:last-child { border-bottom: none; }
 .ts-row span { color: var(--muted); }
+<<<<<<< HEAD
 .ts-row .v,
 .ts-row strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 
@@ -1184,6 +1205,29 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
   color: var(--ink-2);
 }
 .anki-due { font-size: 11px; color: var(--muted); }
+=======
+.ts-row strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Anki widget */
+.anki-widget { }
+.aw-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.aw-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--ink-2);
+}
+.aw-due { font-size: 11px; color: var(--muted); }
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
 .dot {
   width: 7px; height: 7px;
   border-radius: 50%;
@@ -1191,6 +1235,7 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
   display: inline-block;
   flex-shrink: 0;
 }
+<<<<<<< HEAD
 .anki-title .dot {
   background: var(--green);
   box-shadow: 0 0 0 3px var(--green-soft);
@@ -1233,10 +1278,37 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 }
 .anki-progress {
   flex: 1;
+=======
+.aw-counts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.aw-count {
+  text-align: center;
+  padding: 10px 6px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.aw-count.new  { background: oklch(0.92 0.06 240); }
+.aw-count.learn { background: oklch(0.94 0.06 55); }
+.aw-count.due  { background: oklch(0.95 0.05 25); }
+.aw-count .n { font-size: 24px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.aw-count.new  .n { color: oklch(0.35 0.14 240); }
+.aw-count.learn .n { color: oklch(0.40 0.13 55); }
+.aw-count.due  .n { color: oklch(0.48 0.14 25); }
+.aw-count .l { font-size: 11px; font-weight: 600; color: var(--muted); }
+.aw-foot { }
+.aw-progress {
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
   height: 5px;
   background: var(--line-2);
   border-radius: 999px;
   overflow: hidden;
+<<<<<<< HEAD
 }
 .anki-progress i {
   display: block;
@@ -1254,6 +1326,11 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
   font-weight: 600;
 }
 .anki-cta:hover { background: oklch(0.93 0.04 200); }
+=======
+  margin-bottom: 2px;
+}
+.aw-progress i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
 
 /* Calendar */
 .cal-head {
@@ -1688,9 +1765,15 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; padding: 14px 16px; }
   .nav-list { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+<<<<<<< HEAD
   .two-column, .timer-layout, .notes-layout, .overview-grid, .anki-shell { grid-template-columns: 1fr; }
   .rail { flex-direction: row; flex-wrap: wrap; }
   .rail > * { flex: 1; min-width: 240px; }
+=======
+  .two-column, .timer-layout, .notes-layout, .overview-layout, .anki-shell { grid-template-columns: 1fr; }
+  .overview-rail { flex-direction: row; flex-wrap: wrap; }
+  .overview-rail > * { flex: 1; min-width: 240px; }
+>>>>>>> ade2f0a890f8f5bea44cb6bc744f936ae8926ad6
 }
 
 @media (max-width: 760px) {
