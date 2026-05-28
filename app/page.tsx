@@ -21,7 +21,7 @@ import {
   UploadCloud,
   X
 } from "lucide-react";
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getSession, signIn, signOut } from "next-auth/react";
 import { AnkiCard, AnkiGrade, AnkiState, AppState, AuthProvider, LearningMaterial, Quiz, StudyNote, StudySession, Summary, TimerType, User } from "@/lib/types";
 import { addBasicNote, addClozeNote, buildQueue, createAId, esc, getDeckCounts, getCardFB, loadAnkiFromStorage, makeDefaultAnkiState, peekLabel, renderCloze, saveAnkiToStorage, schedule, timeAgo, todayKey } from "@/lib/anki";
@@ -39,6 +39,7 @@ const initialState: AppState = {
 const subjects = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
 
 type TabId = "overview" | "materials" | "notes" | "timer" | "stats" | "anki";
+type HeatView = "year" | "month" | "week";
 
 export default function Home() {
   const [state, setState] = useState<AppState>(initialState);
@@ -545,18 +546,28 @@ export default function Home() {
       </aside>
 
       <section className="content">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Personal learning cockpit</p>
-            <h2>{tabTitle(activeTab)}</h2>
-          </div>
-          <div className="topbar-actions">
-            <span className="status-pill">
-              <CheckCircle2 size={16} />
-              {storageStatus}
-            </span>
-          </div>
-        </header>
+        {activeTab === "overview" ? (
+          <header className="page-header">
+            <div className="title-wrap">
+              <p className="eyebrow">Personal learning dashboard</p>
+              <h1 className="page-title">학습 대시보드</h1>
+            </div>
+            <ActivityHeatmap sessions={userSessions} />
+          </header>
+        ) : (
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">Personal learning cockpit</p>
+              <h2>{tabTitle(activeTab)}</h2>
+            </div>
+            <div className="topbar-actions">
+              <span className="status-pill">
+                <CheckCircle2 size={16} />
+                {storageStatus}
+              </span>
+            </div>
+          </header>
+        )}
 
         {activeTab === "overview" && (
           <Overview
@@ -698,12 +709,12 @@ function Overview({
   const ankiPct = ankiTotal ? Math.round((ankiDone / ankiTotal) * 100) : 0;
 
   return (
-    <div className="overview-layout">
+    <div className="overview-grid">
       <div className="overview-main">
         <section className="panel">
-          <div className="section-heading">
-            <h3>최근 학습 기록</h3>
-            <span>{sessions.length}개 세션</span>
+          <div className="panel-head">
+            <h3 className="panel-title">최근 학습 기록</h3>
+            <span className="panel-meta">최신 5개</span>
           </div>
           <SessionList sessions={sessions.slice(0, 5)} />
           <div className="inline-actions" style={{ marginTop: 16 }}>
@@ -714,30 +725,30 @@ function Overview({
         <CalendarWidget sessions={sessions} />
       </div>
 
-      <aside className="overview-rail">
+      <aside className="rail">
         <CharacterCard character={character} />
 
-        <section className="panel rail-stats">
+        <section className="today-stats">
           <h4>오늘 / 누적</h4>
-          <div className="ts-row"><span>오늘 학습</span><strong>{formatMinutes(todayMinutes)}</strong></div>
-          <div className="ts-row"><span>이번 주</span><strong>{formatMinutes(weekMinutes)}</strong></div>
-          <div className="ts-row"><span>총 학습 시간</span><strong>{formatMinutes(totalMinutes)}</strong></div>
-          <div className="ts-row"><span>연속 학습</span><strong>{streak}일</strong></div>
+          <div className="ts-row"><span>오늘 학습</span><span className="v">{formatMinutes(todayMinutes)}</span></div>
+          <div className="ts-row"><span>이번 주</span><span className="v">{formatMinutes(weekMinutes)}</span></div>
+          <div className="ts-row"><span>총 학습 시간</span><span className="v">{formatMinutes(totalMinutes)}</span></div>
+          <div className="ts-row"><span>연속 학습</span><span className="v">{streak}일</span></div>
         </section>
 
-        <section className="panel anki-widget">
-          <div className="aw-head">
-            <div className="aw-title"><span className="dot" />ANKI 스케줄러</div>
-            <div className="aw-due">오늘 마감 · 23:59</div>
+        <section className="anki" aria-label="Anki 스케줄러">
+          <div className="anki-head">
+            <div className="anki-title"><span className="dot" />ANKI 스케줄러</div>
+            <div className="anki-due">오늘 마감 · 23:59</div>
           </div>
-          <div className="aw-counts">
-            <div className="aw-count new"><span className="n">{totalAnkiNew}</span><span className="l">신규</span></div>
-            <div className="aw-count learn"><span className="n">{totalAnkiLearn}</span><span className="l">학습 중</span></div>
-            <div className="aw-count due"><span className="n">{totalAnkiReview}</span><span className="l">복습</span></div>
+          <div className="anki-stats">
+            <div className="anki-stat new"><span className="n">{totalAnkiNew}</span><span className="l">신규</span></div>
+            <div className="anki-stat learn"><span className="n">{totalAnkiLearn}</span><span className="l">학습 중</span></div>
+            <div className="anki-stat due"><span className="n">{totalAnkiReview}</span><span className="l">복습</span></div>
           </div>
-          <div className="aw-foot">
-            <div className="aw-progress"><i style={{ width: `${ankiPct}%` }} /></div>
-            <button className="primary-button" style={{ width: "100%", marginTop: 10 }} onClick={onGoAnki}>
+          <div className="anki-foot">
+            <div className="anki-progress"><i style={{ width: `${ankiPct}%` }} /></div>
+            <button className="anki-cta" type="button" onClick={onGoAnki}>
               복습 시작 →
             </button>
           </div>
@@ -775,13 +786,13 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
   for (let i = 0; i < trailing; i++) cells.push(<div key={`t${i}`} className="cal-cell empty" />);
 
   return (
-    <section className="panel" style={{ marginTop: 16 }}>
+    <section className="panel">
       <div className="cal-head">
-        <h3 className="section-heading" style={{ margin: 0 }}>{year}년 {month + 1}월</h3>
+        <h3 className="panel-title">{year}년 {month + 1}월</h3>
         <div className="cal-nav">
-          <button className="cal-btn" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>‹</button>
-          <button className="cal-btn" onClick={() => setCalDate(new Date())}>오늘</button>
-          <button className="cal-btn" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>›</button>
+          <button className="cal-btn" aria-label="이전 달" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>‹</button>
+          <button className="cal-btn today-btn" onClick={() => setCalDate(new Date())}>오늘</button>
+          <button className="cal-btn" aria-label="다음 달" onClick={() => setCalDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>›</button>
         </div>
       </div>
       <div className="cal">
@@ -790,6 +801,153 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
       </div>
     </section>
   );
+}
+
+function ActivityHeatmap({ sessions }: { sessions: StudySession[] }) {
+  const [view, setView] = useState<HeatView>("year");
+  const [refDate, setRefDate] = useState(() => new Date());
+
+  const minutesByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    sessions.forEach((session) => {
+      const key = session.endTime.slice(0, 10);
+      map.set(key, (map.get(key) ?? 0) + session.durationMinutes);
+    });
+    return map;
+  }, [sessions]);
+
+  const visibleDates = useMemo(() => buildHeatDates(view, refDate), [view, refDate]);
+  const totalVisibleMinutes = visibleDates.reduce((sum, item) => sum + (item ? minutesByDate.get(dateKey(item)) ?? 0 : 0), 0);
+
+  function moveHeat(delta: number) {
+    setRefDate((current) => {
+      const next = new Date(current);
+      if (view === "year") next.setFullYear(current.getFullYear() + delta);
+      if (view === "month") next.setMonth(current.getMonth() + delta);
+      if (view === "week") next.setDate(current.getDate() + delta * 7);
+      return next;
+    });
+  }
+
+  function cycleView() {
+    setView((current) => (current === "year" ? "month" : current === "month" ? "week" : "year"));
+  }
+
+  return (
+    <section className="header-heatmap" aria-label="학습 활동">
+      <div className="hh-head">
+        <div className="hh-nav">
+          <button className="hh-arrow" aria-label="이전" type="button" onClick={() => moveHeat(-1)}>‹</button>
+          <button className="hh-title-btn" type="button" title="클릭해서 연, 월, 주 전환" onClick={cycleView}>
+            {heatTitle(view, refDate)}
+          </button>
+          <button className="hh-arrow" aria-label="다음" type="button" onClick={() => moveHeat(1)}>›</button>
+        </div>
+        <div className="hh-title"><span className="dot" />학습 활동</div>
+      </div>
+      <div className={`hh-body is-${view}`}>
+        <div className="heat-days">
+          {["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}
+        </div>
+        <div className={`heat-grid view-${view}`}>
+          {visibleDates.map((item, index) => {
+            if (!item) return <div key={`empty-${index}`} className="heat-cell empty" />;
+            const key = dateKey(item);
+            const minutes = minutesByDate.get(key) ?? 0;
+            return (
+              <div
+                key={key}
+                className={`heat-cell ${heatLevel(minutes)} ${isSameDay(item, new Date()) ? "today" : ""}`}
+                data-date={key}
+                title={`${key} · ${formatMinutes(minutes)}`}
+              >
+                {view === "month" && (
+                  <>
+                    <span className="hc-d">{item.getDate()}</span>
+                    <span className="hc-m">{minutes > 0 ? formatMinutes(minutes) : ""}</span>
+                  </>
+                )}
+                {view === "week" && (
+                  <>
+                    <span className="hc-dow">{["일", "월", "화", "수", "목", "금", "토"][item.getDay()]}</span>
+                    <span className="hc-d">{item.getMonth() + 1}/{item.getDate()}</span>
+                    <span className="hc-m">{formatMinutes(minutes)}</span>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="heat-legend">
+        <span>{formatMinutes(totalVisibleMinutes)}</span>
+        <span className="heat-sep">·</span>
+        <span>적음</span>
+        <span className="swatch s0" />
+        <span className="swatch s1" />
+        <span className="swatch s2" />
+        <span className="swatch s3" />
+        <span className="swatch s4" />
+        <span>많음</span>
+      </div>
+    </section>
+  );
+}
+
+function buildHeatDates(view: HeatView, refDate: Date): Array<Date | null> {
+  if (view === "year") {
+    const start = new Date(refDate.getFullYear(), 0, 1);
+    const end = new Date(refDate.getFullYear(), 11, 31);
+    const dates: Array<Date | null> = Array.from({ length: start.getDay() }, () => null);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(new Date(d));
+    }
+    return dates;
+  }
+
+  if (view === "month") {
+    const start = new Date(refDate.getFullYear(), refDate.getMonth(), 1);
+    const end = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0);
+    const dates: Array<Date | null> = Array.from({ length: start.getDay() }, () => null);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(new Date(d));
+    }
+    return dates;
+  }
+
+  const start = new Date(refDate);
+  start.setDate(refDate.getDate() - refDate.getDay());
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return date;
+  });
+}
+
+function dateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function heatTitle(view: HeatView, date: Date) {
+  if (view === "year") return `${date.getFullYear()}`;
+  if (view === "month") return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const start = new Date(date);
+  start.setDate(date.getDate() - date.getDay());
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return `${start.getMonth() + 1}.${start.getDate()}-${end.getMonth() + 1}.${end.getDate()}`;
+}
+
+function heatLevel(minutes: number) {
+  if (minutes >= 180) return "l4";
+  if (minutes >= 120) return "l3";
+  if (minutes >= 60) return "l2";
+  if (minutes > 0) return "l1";
+  return "";
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
 function MaterialsView({
@@ -1163,22 +1321,24 @@ function CharacterCard({ character }: { character: ReturnType<typeof calculateCh
   const progress = character.experiencePoint % 300;
 
   return (
-    <div className="character-card">
-      <div className="character-visual" aria-label="성장 캐릭터 루미">
-        <div className="character-face">
-          <span />
-          <span />
+    <div className="rumi">
+      <div className="rumi-head"><span className="rumi-tag">{character.growthStage}</span></div>
+      <div className="rumi-row">
+        <div className="rumi-face" aria-label="성장 캐릭터 루미">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="15" fill="oklch(0.92 0.06 155)" stroke="oklch(0.65 0.14 155)" strokeWidth="1.5" />
+            <circle cx="13" cy="16" r="1.6" fill="oklch(0.30 0.10 155)" />
+            <circle cx="23" cy="16" r="1.6" fill="oklch(0.30 0.10 155)" />
+            <path d="M13 22 Q18 25 23 22" stroke="oklch(0.30 0.10 155)" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+          </svg>
+        </div>
+        <div>
+          <h3 className="rumi-name">{character.name} Lv.{character.level}</h3>
+          <p className="rumi-desc">{character.status}</p>
         </div>
       </div>
-      <div>
-        <p className="eyebrow">{character.growthStage}</p>
-        <h4>{character.name} Lv.{character.level}</h4>
-        <p>{character.status}</p>
-        <div className="progress-line">
-          <i style={{ width: `${(progress / 300) * 100}%` }} />
-        </div>
-        <span className="small-muted">{character.experiencePoint} EXP</span>
-      </div>
+      <div className="rumi-bar"><i style={{ width: `${(progress / 300) * 100}%` }} /></div>
+      <div className="rumi-exp">{character.experiencePoint} EXP</div>
     </div>
   );
 }
