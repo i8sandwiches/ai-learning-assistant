@@ -1940,7 +1940,7 @@ export default function Home() {
     try {
       const res = await fetch("/api/store", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error();
-      setStorageStatus("MongoDB 연결됨");
+      
     } catch {
       // store failed — swallow silently
     }
