@@ -1,6 +1,6 @@
 export type AuthProvider = "GOOGLE" | "KAKAO" | "NAVER";
 export type FileType = "PDF" | "IMAGE" | "TXT" | "MD";
-export type TimerType = "STOPWATCH" | "POMODORO";
+export type TimerType = "STOPWATCH" | "POMODORO" | "TIMER";
 
 export interface User {
   userId: string;
@@ -67,6 +67,11 @@ export interface CharacterState {
   experiencePoint: number;
   growthStage: string;
   status: string;
+  desc: string;
+  attendanceDays: number;
+  progress: number;
+  nextInfo: string;
+  totalHours: number;
 }
 
 export interface AppState {
