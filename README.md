@@ -6,7 +6,7 @@
 
 - Google OAuth 로그인 및 Kakao 데모 로그인
 - PDF, 이미지, TXT, MD 학습 자료 업로드 및 파일 형식 검증
-- Gemini API 기반 AI 요약, API 키가 없을 때 로컬 폴백 요약
+- Gemini API 기반 AI 요약, 복습 문제 생성, 요약+퀴즈 통합 학습 세트 생성
 - 요약본 저장, 조회, 삭제
 - 마크다운 학습 노트 작성, 수정, 삭제
 - 노트 기반 AI 요약 및 복습 문제 생성
@@ -25,7 +25,7 @@ npm run dev
 
 ## AI 연동
 
-`.env.example`을 참고해 `.env.local`에 `GEMINI_API_KEY`를 넣으면 실제 Gemini 요약/문제 생성을 사용합니다. 키가 없거나 호출이 실패하면 앱은 데모 가능한 로컬 요약 엔진으로 자동 전환됩니다.
+`.env.example`을 참고해 `.env.local`에 `GEMINI_API_KEY`를 넣으면 실제 Gemini 요약/문제 생성을 사용합니다. 기본 모델은 `gemini-2.5-flash`이며, 필요하면 `GEMINI_MODEL`로 바꿀 수 있습니다. 키가 없거나 호출이 실패하면 앱은 데모 가능한 로컬 요약/퀴즈 엔진으로 자동 전환됩니다.
 
 ## Google 로그인
 

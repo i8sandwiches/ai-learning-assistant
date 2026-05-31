@@ -51,6 +51,8 @@ export default function Home() {
   const [noteDraft, setNoteDraft] = useState({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
   const [uploadStatus, setUploadStatus] = useState("학습 자료를 업로드하면 AI 요약을 바로 생성합니다.");
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isGeneratingStudyKit, setIsGeneratingStudyKit] = useState(false);
+  const [studyKitStatus, setStudyKitStatus] = useState("노트 내용을 입력한 뒤 Gemini로 요약과 복습 문제를 함께 만들 수 있습니다.");
   const [storageStatus, setStorageStatus] = useState("MongoDB 대기 중");
   const [timerType, setTimerType] = useState<TimerType>("STOPWATCH");
   const [timerSubject, setTimerSubject] = useState("전공");
@@ -125,7 +127,7 @@ export default function Home() {
     [currentUser?.userId, userSessions]
   );
   const selectedSummary = state.summaries.find((summary) => summary.summaryId === selectedSummaryId) ?? state.summaries[0];
-  const selectedNote = state.notes.find((note) => note.noteId === selectedNoteId) ?? state.notes[0];
+  const selectedNote = selectedNoteId ? state.notes.find((note) => note.noteId === selectedNoteId) : undefined;
   const noteQuizzes = state.quizzes.filter((quiz) => quiz.noteId === selectedNote?.noteId);
 
   useEffect(() => {
@@ -266,9 +268,14 @@ export default function Home() {
   }
 
   async function saveNote() {
-    if (!currentUser || !noteDraft.title.trim()) return;
+    const savedNote = upsertNoteDraft();
+    setStudyKitStatus(savedNote ? "노트가 저장되었습니다." : "제목과 내용을 입력하세요.");
+  }
 
+  function upsertNoteDraft() {
+    if (!currentUser || !noteDraft.title.trim() || !noteDraft.markdownContent.trim()) return null;
     const now = new Date().toISOString();
+
     if (selectedNote) {
       const updatedNote: StudyNote = {
         ...selectedNote,
@@ -282,7 +289,7 @@ export default function Home() {
         notes: previous.notes.map((note) => (note.noteId === selectedNote.noteId ? updatedNote : note))
       }));
       void persistStore({ operation: "upsertNote", userId: currentUser.userId, note: updatedNote });
-      return;
+      return updatedNote;
     }
 
     const note: StudyNote = {
@@ -297,11 +304,13 @@ export default function Home() {
     setState((previous) => ({ ...previous, notes: [note, ...previous.notes] }));
     setSelectedNoteId(note.noteId);
     void persistStore({ operation: "upsertNote", userId: currentUser.userId, note });
+    return note;
   }
 
   function newNote() {
     setSelectedNoteId("");
     setNoteDraft({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
+    setStudyKitStatus("새 노트 내용을 입력하면 AI 요약과 퀴즈를 만들 수 있습니다.");
   }
 
   function deleteNote(noteId: string) {
@@ -318,13 +327,19 @@ export default function Home() {
   }
 
   async function summarizeNote() {
-    if (!currentUser || !selectedNote) return;
-    const content = await requestSummary(selectedNote.title, selectedNote.markdownContent);
+    if (!currentUser) return;
+    const note = upsertNoteDraft();
+    if (!note) {
+      setStudyKitStatus("요약할 노트 제목과 내용을 입력하세요.");
+      return;
+    }
+
+    const content = await requestSummary(note.title, note.markdownContent);
     const summary: Summary = {
       summaryId: createId("summary"),
       userId: currentUser.userId,
-      noteId: selectedNote.noteId,
-      title: `${selectedNote.title} 노트 요약`,
+      noteId: note.noteId,
+      title: `${note.title} 노트 요약`,
       content,
       sourceType: "note",
       createdAt: new Date().toISOString()
@@ -333,29 +348,95 @@ export default function Home() {
     setState((previous) => ({ ...previous, summaries: [summary, ...previous.summaries] }));
     setSelectedSummaryId(summary.summaryId);
     setActiveTab("materials");
+    setStudyKitStatus("요약이 생성되어 저장되었습니다.");
     void persistStore({ operation: "addSummary", userId: currentUser.userId, summary });
   }
 
   async function generateQuiz() {
-    if (!currentUser || !selectedNote) return;
+    if (!currentUser) return;
+    const note = upsertNoteDraft();
+    if (!note) {
+      setStudyKitStatus("문제를 생성할 노트 제목과 내용을 입력하세요.");
+      return;
+    }
 
     const response = await fetch("/api/ai/quiz", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: selectedNote.title, content: selectedNote.markdownContent })
+      body: JSON.stringify({ title: note.title, content: note.markdownContent })
     });
     const data = (await response.json()) as { quizzes: Array<{ question: string; answer: string }> };
     const generated: Quiz[] = data.quizzes.map((quiz) => ({
       quizId: createId("quiz"),
       userId: currentUser.userId,
-      noteId: selectedNote.noteId,
+      noteId: note.noteId,
       question: quiz.question,
       answer: quiz.answer,
       createdAt: new Date().toISOString()
     }));
 
     setState((previous) => ({ ...previous, quizzes: [...generated, ...previous.quizzes] }));
+    setStudyKitStatus(`복습 문제 ${generated.length}개가 생성되어 저장되었습니다.`);
     void persistStore({ operation: "addQuizzes", userId: currentUser.userId, quizzes: generated });
+  }
+
+  async function generateStudyKit() {
+    if (!currentUser) return;
+    const note = upsertNoteDraft();
+
+    if (!note) {
+      setStudyKitStatus("제목과 학습 내용을 입력하면 요약과 퀴즈를 생성할 수 있습니다.");
+      return;
+    }
+
+    setIsGeneratingStudyKit(true);
+    setStudyKitStatus("Gemini가 요약과 복습 문제를 생성하는 중입니다.");
+
+    try {
+      const response = await fetch("/api/ai/study-kit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: note.title, content: note.markdownContent })
+      });
+
+      if (!response.ok) throw new Error("Study kit request failed");
+
+      const data = (await response.json()) as { summary: string; quizzes: Array<{ question: string; answer: string }> };
+      const summary: Summary = {
+        summaryId: createId("summary"),
+        userId: currentUser.userId,
+        noteId: note.noteId,
+        title: `${note.title} AI 학습 요약`,
+        content: data.summary,
+        sourceType: "note",
+        createdAt: new Date().toISOString()
+      };
+      const generated: Quiz[] = data.quizzes.map((quiz) => ({
+        quizId: createId("quiz"),
+        userId: currentUser.userId,
+        noteId: note.noteId,
+        question: quiz.question,
+        answer: quiz.answer,
+        createdAt: new Date().toISOString()
+      }));
+
+      setState((previous) => ({
+        ...previous,
+        summaries: [summary, ...previous.summaries],
+        quizzes: [...generated, ...previous.quizzes]
+      }));
+      setSelectedSummaryId(summary.summaryId);
+      setSelectedNoteId(note.noteId);
+      setStudyKitStatus(`요약 1개와 복습 문제 ${generated.length}개가 생성되어 저장되었습니다.`);
+      void Promise.all([
+        persistStore({ operation: "addSummary", userId: currentUser.userId, summary }),
+        persistStore({ operation: "addQuizzes", userId: currentUser.userId, quizzes: generated })
+      ]);
+    } catch {
+      setStudyKitStatus("AI 학습 세트 생성에 실패했습니다. 잠시 후 다시 시도하세요.");
+    } finally {
+      setIsGeneratingStudyKit(false);
+    }
   }
 
   function deleteSummary(summaryId: string) {
@@ -515,6 +596,9 @@ export default function Home() {
             onDelete={deleteNote}
             onSummarize={summarizeNote}
             onQuiz={generateQuiz}
+            onStudyKit={generateStudyKit}
+            isGeneratingStudyKit={isGeneratingStudyKit}
+            studyKitStatus={studyKitStatus}
           />
         )}
 
@@ -715,7 +799,10 @@ function NotesView({
   onNew,
   onDelete,
   onSummarize,
-  onQuiz
+  onQuiz,
+  onStudyKit,
+  isGeneratingStudyKit,
+  studyKitStatus
 }: {
   notes: StudyNote[];
   selectedNote?: StudyNote;
@@ -729,7 +816,12 @@ function NotesView({
   onDelete: (noteId: string) => void;
   onSummarize: () => void;
   onQuiz: () => void;
+  onStudyKit: () => void;
+  isGeneratingStudyKit: boolean;
+  studyKitStatus: string;
 }) {
+  const hasDraftContent = Boolean(noteDraft.title.trim() && noteDraft.markdownContent.trim());
+
   return (
     <div className="notes-layout">
       <section className="panel note-index">
@@ -783,11 +875,15 @@ function NotesView({
           aria-label="마크다운 노트 내용"
         />
         <div className="inline-actions">
-          <button className="secondary-button" disabled={!selectedNote} onClick={onSummarize}>
+          <button className="primary-button" disabled={!hasDraftContent || isGeneratingStudyKit} onClick={onStudyKit}>
+            <Sparkles size={16} />
+            {isGeneratingStudyKit ? "생성 중" : "AI 요약+퀴즈"}
+          </button>
+          <button className="secondary-button" disabled={!hasDraftContent || isGeneratingStudyKit} onClick={onSummarize}>
             <Bot size={16} />
             노트 요약
           </button>
-          <button className="secondary-button" disabled={!selectedNote} onClick={onQuiz}>
+          <button className="secondary-button" disabled={!hasDraftContent || isGeneratingStudyKit} onClick={onQuiz}>
             <Sparkles size={16} />
             문제 생성
           </button>
@@ -798,6 +894,7 @@ function NotesView({
             </button>
           )}
         </div>
+        <p className="empty-text ai-status">{studyKitStatus}</p>
       </section>
 
       <section className="panel note-preview">
