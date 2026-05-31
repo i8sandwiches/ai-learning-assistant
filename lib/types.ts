@@ -1,6 +1,6 @@
-export type AuthProvider = "GOOGLE" | "KAKAO";
+export type AuthProvider = "GOOGLE" | "KAKAO" | "NAVER";
 export type FileType = "PDF" | "IMAGE" | "TXT" | "MD";
-export type TimerType = "STOPWATCH" | "POMODORO";
+export type TimerType = "STOPWATCH" | "POMODORO" | "TIMER";
 
 export interface User {
   userId: string;
@@ -67,6 +67,11 @@ export interface CharacterState {
   experiencePoint: number;
   growthStage: string;
   status: string;
+  desc: string;
+  attendanceDays: number;
+  progress: number;
+  nextInfo: string;
+  totalHours: number;
 }
 
 export interface AppState {
@@ -76,4 +81,63 @@ export interface AppState {
   notes: StudyNote[];
   quizzes: Quiz[];
   sessions: StudySession[];
+}
+
+// ---- Anki ----
+export type CardState = "new" | "learn" | "review" | "suspended";
+export type AnkiGrade = 0 | 1 | 2 | 3;
+
+export interface AnkiDeck {
+  deckId: string;
+  name: string;
+  createdAt: number;
+}
+
+export interface AnkiNote {
+  noteId: string;
+  deckId: string;
+  type: "basic" | "cloze";
+  fields: { front?: string; back?: string; text?: string; extra?: string };
+  tags: string[];
+  createdAt: number;
+}
+
+export interface AnkiCard {
+  cardId: string;
+  noteId: string;
+  deckId: string;
+  ord: number;
+  state: CardState;
+  ease: number;
+  interval: number;
+  reps: number;
+  lapses: number;
+  learnStep: number;
+  due: number;
+  lastReview: number | null;
+}
+
+export interface AnkiReviewLog {
+  ts: number;
+  cardId: string;
+  grade: AnkiGrade;
+  prevInterval: number;
+  newInterval: number;
+}
+
+export interface AnkiSettings {
+  newPerDay: number;
+  reviewPerDay: number;
+  learnSteps: number[];
+}
+
+export interface AnkiState {
+  activeDeckId: string;
+  decks: AnkiDeck[];
+  notes: AnkiNote[];
+  cards: AnkiCard[];
+  reviewLog: AnkiReviewLog[];
+  todayDate: string;
+  todayCounts: { new: number; learn: number; review: number };
+  settings: AnkiSettings;
 }
