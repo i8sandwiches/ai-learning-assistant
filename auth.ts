@@ -1,5 +1,24 @@
 import NextAuth from "next-auth";
+import type { DefaultSession } from "next-auth";
 import Google from "next-auth/providers/google";
+import Kakao from "next-auth/providers/kakao";
+import type { JWT } from "next-auth/jwt";
+
+declare module "next-auth" {
+  interface Session {
+    user?: DefaultSession["user"] & {
+      provider?: string;
+      providerAccountId?: string;
+    };
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    provider?: string;
+    providerAccountId?: string;
+  }
+}
 
 const Naver = {
   id: "naver",
@@ -25,7 +44,18 @@ const Naver = {
 };
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google, Naver],
+  providers: [
+    Google,
+    Kakao({
+      authorization: {
+        url: "https://kauth.kakao.com/oauth/authorize",
+        params: {
+          scope: "profile_nickname"
+        }
+      }
+    }),
+    Naver
+  ],
   trustHost: true,
   session: {
     strategy: "jwt"
@@ -41,6 +71,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return Boolean(r?.id);
       }
       return true;
+    },
+    async jwt({ token, account }) {
+      if (account) {
+        token.provider = account.provider;
+        token.providerAccountId = account.providerAccountId;
+      }
+
+      return token as JWT;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.provider = token.provider;
+        session.user.providerAccountId = token.providerAccountId;
+      }
+
+      return session;
     }
   }
 });

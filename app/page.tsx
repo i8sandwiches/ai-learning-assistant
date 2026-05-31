@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { getSession, signOut } from "next-auth/react";
+import { getSession, signIn, signOut } from "next-auth/react";
 import {
   AnkiCard,
   AnkiGrade,
@@ -116,6 +116,12 @@ const TAB_TITLES: Record<string, string> = {
 
 type TabId = "overview" | "materials" | "notes" | "timer" | "stats" | "anki";
 type HeatView = "year" | "month" | "week";
+type SessionUser = {
+  email?: string | null;
+  name?: string | null;
+  provider?: string;
+  providerAccountId?: string;
+};
 
 const initialState: AppState = {
   user: null,
@@ -1741,7 +1747,7 @@ export default function Home() {
   const [reviewBack, setReviewBack] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
 
-  useEffect(() => { void syncGoogleSession(); }, []);
+  useEffect(() => { void syncAuthSession(); }, []);
 
   useEffect(() => {
     const loaded = loadAnkiFromStorage();
@@ -1857,34 +1863,31 @@ export default function Home() {
     }
   }, [selectedNote?.noteId]);
 
-  async function syncGoogleSession() {
+  async function syncAuthSession() {
     const session = await getSession();
-    const email = session?.user?.email;
-    if (!email) return;
+    const sessionUser = session?.user as SessionUser | undefined;
+    const provider = sessionUser?.provider?.toUpperCase() as AuthProvider | undefined;
+
+    if (provider !== "GOOGLE" && provider !== "KAKAO" && provider !== "NAVER") return;
+
+    const providerAccountId = sessionUser?.providerAccountId ?? sessionUser?.email ?? sessionUser?.name;
+    if (!providerAccountId) return;
+
+    const email = sessionUser?.email ?? `${providerAccountId}@${provider.toLowerCase()}.local`;
     const user: User = {
-      userId: `google_${email.toLowerCase()}`,
+      userId: `${provider.toLowerCase()}_${providerAccountId}`,
       email,
-      nickname: session.user?.name ?? email.split("@")[0],
-      provider: "GOOGLE",
+      nickname: sessionUser?.name ?? email.split("@")[0],
+      provider,
       createdAt: new Date().toISOString(),
     };
+
     setState(prev => ({ ...prev, user }));
     await persistStore({ operation: "login", user });
   }
 
   async function login(provider: AuthProvider) {
-    const nickname = nicknameDraft.trim();
-    const safeNick = (nickname || "demo").toLowerCase().replace(/\s+/g, "_");
-    const providerName = provider === "GOOGLE" ? "Google" : provider === "NAVER" ? "Naver" : "Kakao";
-    const user: User = {
-      userId: `${provider.toLowerCase()}_${safeNick}`,
-      email: provider === "GOOGLE" ? `${safeNick}@example.com` : provider === "NAVER" ? "learner.naver@example.com" : "learner.kakao@example.com",
-      nickname: nickname || `${providerName} 학습자`,
-      provider,
-      createdAt: new Date().toISOString(),
-    };
-    setState(prev => ({ ...prev, user }));
-    await persistStore({ operation: "login", user });
+    await signIn(provider.toLowerCase(), { callbackUrl: "/" });
   }
 
   async function logout() {
