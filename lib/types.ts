@@ -1,4 +1,4 @@
-export type AuthProvider = "GOOGLE" | "KAKAO" | "NAVER";
+export type AuthProvider = "GOOGLE" | "KAKAO" | "NAVER" | "GUEST";
 export type FileType = "PDF" | "IMAGE" | "TXT" | "MD";
 export type TimerType = "STOPWATCH" | "POMODORO" | "TIMER";
 
