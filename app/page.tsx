@@ -132,6 +132,8 @@ const initialState: AppState = {
   sessions: [],
 };
 
+const GUEST_USER_STORAGE_KEY = "studyapp.guestUser";
+
 /* ============================================================
    SessionClock
    ============================================================ */
@@ -1868,6 +1870,12 @@ export default function Home() {
     const sessionUser = session?.user as SessionUser | undefined;
     const provider = sessionUser?.provider?.toUpperCase() as AuthProvider | undefined;
 
+    if (!sessionUser) {
+      const guestUser = readStoredGuestUser();
+      if (guestUser) setState(prev => ({ ...prev, user: guestUser }));
+      return;
+    }
+
     if (provider !== "GOOGLE" && provider !== "KAKAO" && provider !== "NAVER") return;
 
     const providerAccountId = sessionUser?.providerAccountId ?? sessionUser?.email ?? sessionUser?.name;
@@ -1887,11 +1895,83 @@ export default function Home() {
   }
 
   async function login(provider: AuthProvider) {
+    if (provider === "GUEST") {
+      const user = buildGuestUser(nicknameDraft);
+      saveStoredGuestUser(user);
+      setState(prev => ({ ...prev, user }));
+      await persistStore({ operation: "login", user });
+      return;
+    }
+
     await signIn(provider.toLowerCase(), { callbackUrl: "/" });
+  }
+
+  function readStoredGuestUser() {
+    const storage = getGuestStorage();
+    if (!storage) return null;
+
+    try {
+      const raw = storage.getItem(GUEST_USER_STORAGE_KEY);
+      if (!raw) return null;
+
+      const user = JSON.parse(raw) as Partial<User>;
+      if (
+        user.provider === "GUEST" &&
+        user.userId &&
+        user.email &&
+        user.nickname &&
+        user.createdAt
+      ) {
+        return user as User;
+      }
+    } catch {
+      // Ignore malformed local guest data.
+    }
+
+    return null;
+  }
+
+  function buildGuestUser(nickname: string): User {
+    const trimmedNickname = nickname.trim();
+    const storedGuestUser = readStoredGuestUser();
+
+    if (storedGuestUser) {
+      return {
+        ...storedGuestUser,
+        nickname: trimmedNickname || storedGuestUser.nickname,
+      };
+    }
+
+    const guestId = globalThis.crypto?.randomUUID?.() ?? createId("guest");
+
+    return {
+      userId: `guest_${guestId}`,
+      email: `${guestId}@guest.local`,
+      nickname: trimmedNickname || "Guest",
+      provider: "GUEST",
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  function saveStoredGuestUser(user: User) {
+    const storage = getGuestStorage();
+    if (!storage) return;
+    storage.setItem(GUEST_USER_STORAGE_KEY, JSON.stringify(user));
+  }
+
+  function getGuestStorage() {
+    if (typeof window === "undefined") return null;
+
+    try {
+      return window.localStorage ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async function logout() {
     setIsRunning(false);
+    if (currentUser?.provider === "GUEST") getGuestStorage()?.removeItem(GUEST_USER_STORAGE_KEY);
     setState(prev => ({ ...prev, user: null }));
     const session = await getSession();
     if (session) await signOut({ callbackUrl: "/" });
@@ -2045,13 +2125,17 @@ export default function Home() {
             <label htmlFor="nickname">닉네임</label>
             <input id="nickname" type="text" placeholder="화면에 표시할 이름" maxLength={20} autoComplete="nickname"
               value={nicknameDraft} onChange={e => setNicknameDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") void login("KAKAO"); }} />
+              onKeyDown={e => { if (e.key === "Enter") void login("GUEST"); }} />
             <span className="nickname-hint">비우고 진행하면 기본 이름이 사용됩니다.</span>
           </div>
           <div className="auth-actions">
+            <button className="provider-button guest" onClick={() => void login("GUEST")}>
+              <Sparkles size={16} />
+              게스트로 시작
+            </button>
             <button className="provider-button google" onClick={() => void login("GOOGLE")}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M21.35 11.1H12v3.8h5.32c-.23 1.49-1.7 4.36-5.32 4.36-3.2 0-5.81-2.65-5.81-5.92s2.61-5.92 5.81-5.92c1.82 0 3.04.78 3.74 1.44l2.55-2.46C16.78 4.74 14.62 3.7 12 3.7c-4.79 0-8.67 3.88-8.67 8.67S7.21 21.04 12 21.04c5 0 8.32-3.51 8.32-8.46 0-.57-.06-1-.13-1.48z" /></svg>
-              Google 계정으로 로그인
+              Google로 시작
             </button>
             <button className="provider-button kakao" onClick={() => void login("KAKAO")}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="#2c2100"><path d="M12 3C6.48 3 2 6.58 2 11c0 2.83 1.84 5.32 4.6 6.74-.2.71-.73 2.57-.83 2.97-.13.5.18.5.39.36.16-.1 2.55-1.73 3.58-2.43.74.11 1.5.16 2.26.16 5.52 0 10-3.58 10-8s-4.48-7.8-10-7.8z" /></svg>
