@@ -170,9 +170,13 @@ export function makeDefaultAnkiState(): AnkiState {
   return s;
 }
 
-export function loadAnkiFromStorage(): AnkiState {
+function ankiStorageKey(userId?: string | null) {
+  return userId ? `anki_state_v3.${encodeURIComponent(userId)}` : "anki_state_v3";
+}
+
+export function loadAnkiFromStorage(userId?: string | null): AnkiState {
   try {
-    const raw = localStorage.getItem("anki_state_v3");
+    const raw = localStorage.getItem(ankiStorageKey(userId));
     if (raw) {
       const parsed = JSON.parse(raw) as AnkiState;
       if (parsed.todayDate !== todayKey()) {
@@ -185,8 +189,8 @@ export function loadAnkiFromStorage(): AnkiState {
   return makeDefaultAnkiState();
 }
 
-export function saveAnkiToStorage(s: AnkiState) {
-  try { localStorage.setItem("anki_state_v3", JSON.stringify(s)); } catch { /* ignore */ }
+export function saveAnkiToStorage(s: AnkiState, userId?: string | null) {
+  try { localStorage.setItem(ankiStorageKey(userId), JSON.stringify(s)); } catch { /* ignore */ }
 }
 
 export function timeAgo(ts: number): string {

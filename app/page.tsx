@@ -1743,25 +1743,37 @@ export default function Home() {
   // Anki state
   const [anki, setAnki] = useState<AnkiState>(makeDefaultAnkiState);
   const [ankiLoaded, setAnkiLoaded] = useState(false);
+  const [ankiUserId, setAnkiUserId] = useState<string | null>(null);
   const [ankiDeckId, setAnkiDeckId] = useState("");
   const [reviewQueue, setReviewQueue] = useState<AnkiCard[]>([]);
   const [reviewIdx, setReviewIdx] = useState(0);
   const [reviewBack, setReviewBack] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const currentUser = state.user;
 
   useEffect(() => { void syncAuthSession(); }, []);
 
   useEffect(() => {
-    const loaded = loadAnkiFromStorage();
+    if (!currentUser) {
+      setAnki(makeDefaultAnkiState());
+      setAnkiDeckId("");
+      setAnkiUserId(null);
+      setAnkiLoaded(false);
+      return;
+    }
+
+    setAnkiLoaded(false);
+    const loaded = loadAnkiFromStorage(currentUser.userId);
     setAnki(loaded);
     setAnkiDeckId(loaded.activeDeckId || (loaded.decks[0]?.deckId ?? ""));
+    setAnkiUserId(currentUser.userId);
     setAnkiLoaded(true);
-  }, []);
+  }, [currentUser?.userId]);
 
   useEffect(() => {
-    if (!ankiLoaded) return;
-    saveAnkiToStorage(anki);
-  }, [anki, ankiLoaded]);
+    if (!ankiLoaded || !currentUser || ankiUserId !== currentUser.userId) return;
+    saveAnkiToStorage(anki, currentUser.userId);
+  }, [anki, ankiLoaded, ankiUserId, currentUser?.userId]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -1822,8 +1834,6 @@ export default function Home() {
     setReviewBack(false);
   }
 
-  const currentUser = state.user;
-
   useEffect(() => {
     if (!currentUser) return;
     let cancelled = false;
@@ -1847,6 +1857,22 @@ export default function Home() {
     () => state.sessions.filter(s => s.userId === currentUser?.userId),
     [state.sessions, currentUser?.userId]
   );
+  const userMaterials = useMemo(
+    () => state.materials.filter(m => m.userId === currentUser?.userId),
+    [state.materials, currentUser?.userId]
+  );
+  const userSummaries = useMemo(
+    () => state.summaries.filter(s => s.userId === currentUser?.userId),
+    [state.summaries, currentUser?.userId]
+  );
+  const userNotes = useMemo(
+    () => state.notes.filter(n => n.userId === currentUser?.userId),
+    [state.notes, currentUser?.userId]
+  );
+  const userQuizzes = useMemo(
+    () => state.quizzes.filter(q => q.userId === currentUser?.userId),
+    [state.quizzes, currentUser?.userId]
+  );
   const character = useMemo(
     () => calculateCharacter(currentUser?.userId ?? "guest", userSessions),
     [currentUser?.userId, userSessions]
@@ -1855,9 +1881,9 @@ export default function Home() {
     () => new Set(userSessions.map(s => s.endTime.slice(0, 10))).size,
     [userSessions]
   );
-  const selectedSummary = state.summaries.find(s => s.summaryId === selectedSummaryId) ?? state.summaries[0];
-  const selectedNote = state.notes.find(n => n.noteId === selectedNoteId) ?? state.notes[0];
-  const noteQuizzes = state.quizzes.filter(q => q.noteId === selectedNote?.noteId);
+  const selectedSummary = userSummaries.find(s => s.summaryId === selectedSummaryId) ?? userSummaries[0];
+  const selectedNote = userNotes.find(n => n.noteId === selectedNoteId) ?? userNotes[0];
+  const noteQuizzes = userQuizzes.filter(q => q.noteId === selectedNote?.noteId);
 
   useEffect(() => {
     if (selectedNote) {
@@ -1872,7 +1898,7 @@ export default function Home() {
 
     if (!sessionUser) {
       const guestUser = readStoredGuestUser();
-      if (guestUser) setState(prev => ({ ...prev, user: guestUser }));
+      if (guestUser) setState({ ...initialState, user: guestUser });
       return;
     }
 
@@ -1890,7 +1916,7 @@ export default function Home() {
       createdAt: new Date().toISOString(),
     };
 
-    setState(prev => ({ ...prev, user }));
+    setState({ ...initialState, user });
     await persistStore({ operation: "login", user });
   }
 
@@ -1898,7 +1924,7 @@ export default function Home() {
     if (provider === "GUEST") {
       const user = buildGuestUser(nicknameDraft);
       saveStoredGuestUser(user);
-      setState(prev => ({ ...prev, user }));
+      setState({ ...initialState, user });
       await persistStore({ operation: "login", user });
       return;
     }
@@ -1972,7 +1998,7 @@ export default function Home() {
   async function logout() {
     setIsRunning(false);
     if (currentUser?.provider === "GUEST") getGuestStorage()?.removeItem(GUEST_USER_STORAGE_KEY);
-    setState(prev => ({ ...prev, user: null }));
+    setState(initialState);
     const session = await getSession();
     if (session) await signOut({ callbackUrl: "/" });
   }
@@ -2187,7 +2213,7 @@ export default function Home() {
 
         {activeTab === "materials" && (
           <MaterialsView
-            summaries={state.summaries} materials={state.materials}
+            summaries={userSummaries} materials={userMaterials}
             selectedSummary={selectedSummary} selectedSummaryId={selectedSummaryId}
             uploadStatus={uploadStatus} isSummarizing={isSummarizing}
             onUpload={handleUpload} onSelectSummary={setSelectedSummaryId} onDeleteSummary={deleteSummary}
@@ -2196,7 +2222,7 @@ export default function Home() {
 
         {activeTab === "notes" && (
           <NotesView
-            notes={state.notes} selectedNote={selectedNote} selectedNoteId={selectedNoteId}
+            notes={userNotes} selectedNote={selectedNote} selectedNoteId={selectedNoteId}
             noteDraft={noteDraft} quizzes={noteQuizzes}
             onSelectNote={setSelectedNoteId} onDraftChange={setNoteDraft}
             onSave={saveNote} onNew={newNote} onDelete={deleteNote}
