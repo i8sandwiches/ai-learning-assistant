@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 import React, { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { getSession, signOut } from "next-auth/react";
+import { getSession, signIn, signOut } from "next-auth/react";
 import {
   AnkiCard,
   AnkiGrade,
