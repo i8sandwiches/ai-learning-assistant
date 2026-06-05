@@ -109,6 +109,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .provider-button.kakao:hover { background: #ffd900; }
 .provider-button.naver { background: #03c75a; color: white; }
 .provider-button.naver:hover { background: #02b350; }
+.provider-button.guest { background: #f7f3e8; color: var(--ink); border: 1px solid var(--line); }
+.provider-button.guest:hover { background: #efe8d8; }
 
 .primary-button { min-height: 36px; padding: 0 14px; background: var(--ink); color: white; border: 1px solid var(--ink); font-size: 13px; }
 .primary-button:hover { background: #322d27; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(40,30,20,.16); }
@@ -593,6 +595,7 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 
 /* ===== Anki tab ===== */
 .anki-page { display: flex; flex-direction: column; gap: 16px; }
+.anki-main-full { display: flex; flex-direction: column; gap: 16px; }
 .anki-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; align-items: stretch; }
 .anki-stats .panel { display: flex; flex-direction: column; }
 .anki-stats .panel-title, .anki-stats .panel-meta { white-space: nowrap; }

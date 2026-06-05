@@ -1,4 +1,4 @@
-import { MongoClient, ServerApiVersion } from "mongodb";
+import { MongoClient, MongoClientOptions, ServerApiVersion } from "mongodb";
 
 const uri = process.env.MONGODB_URI;
 
@@ -8,7 +8,10 @@ if (!uri) {
 
 const mongoUri = uri;
 
-const options = {
+const options: MongoClientOptions = {
+  maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE ?? 10),
+  minPoolSize: 0,
+  maxIdleTimeMS: 30_000,
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
@@ -21,15 +24,14 @@ const globalForMongo = globalThis as typeof globalThis & {
 };
 
 export async function getMongoClient() {
-  if (process.env.NODE_ENV === "development") {
-    if (!globalForMongo._mongoClientPromise) {
-      globalForMongo._mongoClientPromise = new MongoClient(mongoUri, options).connect();
-    }
-
-    return globalForMongo._mongoClientPromise;
+  if (!globalForMongo._mongoClientPromise) {
+    globalForMongo._mongoClientPromise = new MongoClient(mongoUri, options).connect().catch((error) => {
+      globalForMongo._mongoClientPromise = undefined;
+      throw error;
+    });
   }
 
-  return new MongoClient(mongoUri, options).connect();
+  return globalForMongo._mongoClientPromise;
 }
 
 export async function getAppDb() {

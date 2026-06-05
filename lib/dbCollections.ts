@@ -10,7 +10,22 @@ export const collectionNames = {
   sessions: "studySessions"
 } as const;
 
+const globalForIndexes = globalThis as typeof globalThis & {
+  _mongoIndexesPromise?: Promise<void>;
+};
+
 export async function ensureIndexes() {
+  if (!globalForIndexes._mongoIndexesPromise) {
+    globalForIndexes._mongoIndexesPromise = createIndexes().catch((error) => {
+      globalForIndexes._mongoIndexesPromise = undefined;
+      throw error;
+    });
+  }
+
+  await globalForIndexes._mongoIndexesPromise;
+}
+
+async function createIndexes() {
   const db = await getAppDb();
 
   await Promise.all([

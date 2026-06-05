@@ -1,7 +1,8 @@
 import { summarizeLocally } from "@/lib/study";
 
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 export async function generateGeminiText(prompt: string) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -94,4 +95,13 @@ export async function generateQuizFromNote(title: string, content: string) {
       }
     ];
   }
+}
+
+export async function generateStudyKit(title: string, content: string) {
+  const [summary, quizzes] = await Promise.all([
+    summarizeStudyContent(title, content),
+    generateQuizFromNote(title, content)
+  ]);
+
+  return { summary, quizzes };
 }
