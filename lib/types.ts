@@ -18,6 +18,7 @@ export interface LearningMaterial {
   fileUrl?: string;
   extractedText: string;
   uploadedAt: string;
+  category?: string;
 }
 
 export interface Summary {
@@ -63,6 +64,7 @@ export interface CharacterState {
   characterId: string;
   userId: string;
   name: string;
+  rankName: string;
   level: number;
   experiencePoint: number;
   growthStage: string;

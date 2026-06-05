@@ -99,7 +99,7 @@ const NOTIFICATIONS = [
   { id: "n4", icon: <CheckCircle2 size={16} />, title: "지난주 학습 요약 리포트가 준비되었습니다.", time: "3일 전", unread: false },
 ];
 
-const subjects = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
+const DEFAULT_CATEGORIES = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
 
 const NAV_ITEMS = [
   { id: "overview",   icon: <BarChart3 size={18} />,     label: "대시보드" },
@@ -140,6 +140,109 @@ const initialState: AppState = {
 };
 
 const GUEST_USER_STORAGE_KEY = "studyapp.guestUser";
+
+/* ============================================================
+   CategoryManager
+   ============================================================ */
+function CategoryManager({ categories, counts, onAdd, onRename, onDelete, onClose }: {
+  categories: string[]; counts: Record<string, number>;
+  onAdd: (n: string) => boolean; onRename: (o: string, n: string) => void;
+  onDelete: (n: string) => void; onClose: () => void;
+}) {
+  const [adding, setAdding] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState("");
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (confirmDel) setConfirmDel(null);
+        else if (editing) setEditing(null);
+        else onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, confirmDel, editing]);
+  return (
+    <div className="anki-dialog-overlay" onClick={onClose}>
+      <div className="anki-dialog cat-manager" role="dialog" aria-label="카테고리 관리" onClick={e => e.stopPropagation()}>
+        <div className="cat-manager-head">
+          <h3 className="dialog-title" style={{ margin: 0 }}>카테고리 관리</h3>
+          <button className="icon-button" aria-label="닫기" onClick={onClose}><X size={16} /></button>
+        </div>
+        <p className="dialog-hint">여기서 만든 카테고리는 포모도로 · 학습 노트 · 자료/요약 · Anki 덱에서 함께 사용됩니다.</p>
+        <div className="cat-list">
+          {categories.map(name => {
+            const used = counts?.[name] || 0;
+            const isEditing = editing === name;
+            return (
+              <div className={`cat-row${isEditing ? " editing" : ""}`} key={name}>
+                {isEditing
+                  ? <input className="cat-edit-input" autoFocus value={editVal} maxLength={20}
+                      onChange={e => setEditVal(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { onRename(editing!, editVal); setEditing(null); }
+                        if (e.key === "Escape") setEditing(null);
+                      }} />
+                  : <span className="cat-name"><span className="cat-dot" />{name}</span>
+                }
+                {!isEditing && <span className="cat-count">{used > 0 ? `${used}곳 사용` : "사용 안 함"}</span>}
+                {isEditing
+                  ? <div className="cat-row-actions">
+                      <button className="chip-button" onClick={() => { onRename(editing!, editVal); setEditing(null); }}><Check size={13} />저장</button>
+                      <button className="icon-button" onClick={() => setEditing(null)}><X size={14} /></button>
+                    </div>
+                  : <div className="cat-row-actions">
+                      <button className="icon-button" onClick={() => { setEditing(name); setEditVal(name); }}><Pencil size={14} /></button>
+                      <button className="icon-button danger" disabled={categories.length <= 1} onClick={() => setConfirmDel(name)}><Trash2 size={14} /></button>
+                    </div>
+                }
+              </div>
+            );
+          })}
+        </div>
+        <div className="cat-add-row">
+          <input className="cat-edit-input" placeholder="새 카테고리 이름" maxLength={20} value={adding}
+            onChange={e => setAdding(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && onAdd(adding)) setAdding(""); }} />
+          <button className="primary-button" disabled={!adding.trim()} onClick={() => { if (onAdd(adding)) setAdding(""); }}>
+            <Plus size={15} />추가
+          </button>
+        </div>
+        {confirmDel && (
+          <div className="cat-confirm" onClick={e => e.stopPropagation()}>
+            <p><strong>{confirmDel}</strong> 카테고리를 삭제할까요?<br />이 카테고리를 쓰던 항목은 다른 카테고리로 옮겨집니다.</p>
+            <div className="dialog-actions">
+              <button className="ghost-button" onClick={() => setConfirmDel(null)}>취소</button>
+              <button className="danger-button" onClick={() => { onDelete(confirmDel!); setConfirmDel(null); }}>삭제</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CategoryField
+   ============================================================ */
+function CategoryField({ categories, value, onChange, onManage, label = "과목", style }: {
+  categories: string[]; value: string; onChange: (v: string) => void;
+  onManage: () => void; label?: string; style?: React.CSSProperties;
+}) {
+  return (
+    <div className="cat-field" style={style}>
+      <select value={value} onChange={e => onChange(e.target.value)} aria-label={label}>
+        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        {value && !categories.includes(value) && <option value={value}>{value}</option>}
+      </select>
+      <button type="button" className="cat-manage-btn" title="카테고리 관리" aria-label="카테고리 관리" onClick={onManage}>
+        <Settings2 size={15} />
+      </button>
+    </div>
+  );
+}
 
 /* ============================================================
    SessionClock
@@ -342,7 +445,7 @@ function CharacterCard({ character }: { character: ReturnType<typeof calculateCh
         ))}
       </div>
       <div className="rumi-head">
-        <span className="rumi-tag">Lv.{character.level}</span>
+        <span className="rumi-tag">Lv.{character.level} · {character.rankName}</span>
         <span className="rumi-atd">{character.attendanceDays}일 출석</span>
       </div>
       <div className="rumi-row">
@@ -354,7 +457,13 @@ function CharacterCard({ character }: { character: ReturnType<typeof calculateCh
       </div>
       <div className="rumi-bar"><i style={{ width: `${character.progress}%` }} /></div>
       <div className="rumi-exp">
-        {character.progress}%{character.nextInfo ? <span> · {character.nextInfo}</span> : null}
+        {character.progress}%
+        {character.nextInfo
+          ? <span> · {character.nextInfo}</span>
+          : character.level >= 14
+            ? <span> · 최고 계급 달성!</span>
+            : null
+        }
       </div>
     </div>
   );
@@ -393,14 +502,48 @@ function AnkiWidget({ anki, onStart }: {
 }
 
 /* ============================================================
+   CalDayCell (ResizeObserver-adaptive bar count)
+   ============================================================ */
+interface Sched { id: string; text: string; color: string; }
+function CalDayCell({ day, isToday, isSel, hasSession, scheds, onClick }: {
+  day: number; isToday: boolean; isSel: boolean; hasSession: boolean; scheds: Sched[]; onClick: () => void;
+}) {
+  const cellRef = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(scheds.length);
+  useEffect(() => {
+    const el = cellRef.current; if (!el) return;
+    const BAR = 8, GAP = 3, HEADER = 30;
+    const measure = () => { const avail = el.clientHeight - HEADER; if (avail <= 0) return; setFit(Math.max(1, Math.floor((avail + GAP) / (BAR + GAP)))); };
+    measure();
+    const ro = new ResizeObserver(measure); ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const overflow = scheds.length > fit;
+  const shown = overflow ? Math.max(1, fit - 1) : scheds.length;
+  return (
+    <div ref={cellRef} className={`cal-cell ${isToday ? "today" : ""} ${isSel ? "cal-sel" : ""}`} onClick={onClick}>
+      <span className="cal-date">{day}</span>
+      {hasSession && <span className="cal-session-dot" title="학습 기록" />}
+      <div className="cal-bars">
+        {scheds.slice(0, shown).map(sc => <span key={sc.id} className="cal-bar" style={{ background: sc.color }} title={sc.text} />)}
+        {overflow && <span className="cal-bar-more">+{scheds.length - shown}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    CalendarWidget
    ============================================================ */
 function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
   const [cal, setCal] = useState(() => new Date());
   const [selDay, setSelDay] = useState<string | null>(null);
-  const [schedules, setScheds] = useState<Record<string, { id: string; text: string; color: string }[]>>({});
+  const [schedules, setScheds] = useState<Record<string, Sched[]>>(() => {
+    try { return JSON.parse(localStorage.getItem("hak.scheds") || "{}"); } catch { return {}; }
+  });
   const [newText, setNewText] = useState("");
   const [newColor, setNewColor] = useState(SCHED_COLORS[4]);
+  useEffect(() => { try { localStorage.setItem("hak.scheds", JSON.stringify(schedules)); } catch {} }, [schedules]);
 
   const year = cal.getFullYear(), month = cal.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -439,25 +582,9 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
   for (let d = 1; d <= daysInMonth; d++) {
     const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
     const k = dayKey(d);
-    const isSel = selDay === k;
-    const daySched = schedules[k] || [];
-    const fit = 2;
-    const overflow = daySched.length > fit;
-    const shown = overflow ? Math.max(1, fit - 1) : daySched.length;
     cells.push(
-      <div key={d} className={`cal-cell ${isToday ? "today" : ""} ${isSel ? "cal-sel" : ""}`}
-        onClick={() => selectDay(d)}>
-        <span className="cal-date">{d}</span>
-        {sessionDays.has(d) && <span className="cal-session-dot" title="학습 기록" />}
-        {daySched.length > 0 && (
-          <div className="cal-bars">
-            {daySched.slice(0, shown).map(sc => (
-              <span key={sc.id} className="cal-bar" style={{ background: sc.color }} title={sc.text} />
-            ))}
-            {overflow && <span className="cal-bar-more">+{daySched.length - shown}</span>}
-          </div>
-        )}
-      </div>
+      <CalDayCell key={d} day={d} isToday={isToday} isSel={selDay === k}
+        hasSession={sessionDays.has(d)} scheds={schedules[k] || []} onClick={() => selectDay(d)} />
     );
   }
   const trailing = (7 - ((firstDow + daysInMonth) % 7)) % 7;
@@ -684,7 +811,8 @@ function SessionList({ sessions }: { sessions: StudySession[] }) {
    ============================================================ */
 function MaterialsView({
   summaries, materials, selectedSummary, selectedSummaryId,
-  uploadStatus, isSummarizing, onUpload, onSelectSummary, onDeleteSummary
+  uploadStatus, isSummarizing, onUpload, onSelectSummary, onDeleteSummary,
+  categories, onManageCategories,
 }: {
   summaries: Summary[];
   materials: LearningMaterial[];
@@ -695,7 +823,11 @@ function MaterialsView({
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onSelectSummary: (id: string) => void;
   onDeleteSummary: (id: string) => void;
+  categories: string[];
+  onManageCategories: () => void;
 }) {
+  const [uploadCat, setUploadCat] = useState(categories[0] || "기타");
+  useEffect(() => { if (!categories.includes(uploadCat)) setUploadCat(categories[0] || "기타"); }, [categories]);
   const [selMats, setSelMats] = useState<string[]>([]);
   const [selSums, setSelSums] = useState<string[]>([]);
   const [pinned, setPinned] = useState<string[]>([]);
@@ -713,7 +845,10 @@ function MaterialsView({
   return (
     <div className="two-column view-enter">
       <section className="panel">
-        <div className="section-heading"><h3>학습 자료 업로드</h3><span>PDF · 이미지 · TXT · MD</span></div>
+        <div className="section-heading">
+          <h3>학습 자료 업로드</h3>
+          <CategoryField categories={categories} value={uploadCat} onChange={setUploadCat} onManage={onManageCategories} />
+        </div>
         <label className={`upload-zone ${isSummarizing ? "busy" : ""}`}>
           <UploadCloud size={36} />
           <strong>{isSummarizing ? "요약 생성 중" : "파일 선택"}</strong>
@@ -807,7 +942,8 @@ function MaterialsView({
    ============================================================ */
 function NotesView({
   notes, selectedNote, selectedNoteId, noteDraft, quizzes,
-  onSelectNote, onDraftChange, onSave, onNew, onDelete, onSummarize, onQuiz
+  onSelectNote, onDraftChange, onSave, onNew, onDelete, onSummarize, onQuiz,
+  categories, onManageCategories,
 }: {
   notes: StudyNote[];
   selectedNote?: StudyNote;
@@ -821,6 +957,8 @@ function NotesView({
   onDelete: (id: string) => void;
   onSummarize: () => void;
   onQuiz: () => void;
+  categories: string[];
+  onManageCategories: () => void;
 }) {
   return (
     <div className="notes-layout view-enter">
@@ -844,9 +982,9 @@ function NotesView({
       <section className="panel note-editor">
         <div className="editor-toolbar">
           <input value={noteDraft.title} onChange={e => onDraftChange({ ...noteDraft, title: e.target.value })} aria-label="노트 제목" />
-          <select value={noteDraft.subject} onChange={e => onDraftChange({ ...noteDraft, subject: e.target.value })} aria-label="과목" style={{ maxWidth: 110 }}>
-            {subjects.map(s => <option key={s}>{s}</option>)}
-          </select>
+          <CategoryField categories={categories} value={noteDraft.subject}
+            onChange={v => onDraftChange({ ...noteDraft, subject: v })}
+            onManage={onManageCategories} style={{ maxWidth: 180 }} />
           <button className="primary-button" onClick={onSave}><Save size={16} /> 저장</button>
         </div>
         <textarea className="markdown-input" value={noteDraft.markdownContent}
@@ -926,6 +1064,7 @@ function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, t
 function TimerView({
   timerType, seconds, totalSeconds, isRunning, subject, sessions, pomoPhase,
   timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onDeleteSession,
+  categories, onManageCategories,
 }: {
   timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean;
   subject: string; sessions: StudySession[]; pomoPhase: string;
@@ -933,6 +1072,7 @@ function TimerView({
   onTypeChange: (t: TimerType) => void; onSubjectChange: (s: string) => void;
   onStart: () => void; onPause: () => void; onFinish: () => void; onReset: () => void;
   onRecordLap: () => void; onDeleteSession: (ids: string[]) => void;
+  categories: string[]; onManageCategories: () => void;
 }) {
   const [presets, setPresets] = useState<{ id: string; name: string; study: number; brk: number; repeat: number }[]>(() => {
     try { return JSON.parse(localStorage.getItem("hak.presets") || "null") || [{ id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 }, { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 }]; }
@@ -994,9 +1134,8 @@ function TimerView({
           <button className={timerType === "TIMER" ? "active" : ""} onClick={() => onTypeChange("TIMER")}>타이머</button>
           <button className={timerType === "POMODORO" ? "active" : ""} onClick={() => onTypeChange("POMODORO")}>포모도로</button>
         </div>
-        <select value={subject} onChange={e => onSubjectChange(e.target.value)} aria-label="과목" style={{ maxWidth: 200 }}>
-          {subjects.map(s => <option key={s}>{s}</option>)}
-        </select>
+        <CategoryField categories={categories} value={subject} onChange={onSubjectChange}
+          onManage={onManageCategories} style={{ maxWidth: 260 }} />
 
         {timerType === "POMODORO"
           ? <div className="pomo-clocks">
@@ -1110,7 +1249,8 @@ function TimerView({
 /* ============================================================
    StatsView
    ============================================================ */
-function StatsView({ sessions }: { sessions: StudySession[] }) {
+function StatsView({ sessions, categories }: { sessions: StudySession[]; categories: string[] }) {
+  const allSubs = [...new Set([...categories, ...sessions.map(s => s.subject)])];
   const todayStr = new Date().toISOString().slice(0, 10);
   const monthStr = new Date().toISOString().slice(0, 7);
   const monthly = sessions.filter(s => s.endTime.slice(0, 7) === monthStr).reduce((a, s) => a + s.durationMinutes, 0);
@@ -1120,7 +1260,7 @@ function StatsView({ sessions }: { sessions: StudySession[] }) {
     const ago = (Date.now() - new Date(s.endTime).getTime()) / 86400000;
     return ago > 0 && ago <= 30;
   });
-  const subjectData = subjects.map(sub => {
+  const subjectData = allSubs.map(sub => {
     const todayMin = todaySess.filter(s => s.subject === sub).reduce((a, s) => a + s.durationMinutes, 0);
     const avgMin = pastSess.filter(s => s.subject === sub).reduce((a, s) => a + s.durationMinutes, 0) / 30;
     return { sub, todayMin, avgMin };
@@ -1128,7 +1268,7 @@ function StatsView({ sessions }: { sessions: StudySession[] }) {
 
   const maxMin = Math.max(30, ...subjectData.map(d => Math.max(d.todayMin, d.avgMin)));
 
-  const subjectTotals = subjects.map(sub => ({
+  const subjectTotals = allSubs.map(sub => ({
     subject: sub,
     value: sessions.filter(s => s.subject === sub).reduce((a, s) => a + s.durationMinutes, 0),
   })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
@@ -1987,8 +2127,31 @@ export default function Home() {
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [uploadStatus, setUploadStatus] = useState("학습 자료를 업로드하면 AI 요약을 바로 생성합니다.");
   const [isSummarizing, setIsSummarizing] = useState(false);
+  // Categories — shared across timer, notes, materials, anki
+  const [categories, setCategories] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("hak.categories") || "null") || DEFAULT_CATEGORIES; } catch { return DEFAULT_CATEGORIES; }
+  });
+  const [catManagerOpen, setCatManagerOpen] = useState(false);
+  useEffect(() => { try { localStorage.setItem("hak.categories", JSON.stringify(categories)); } catch {} }, [categories]);
+
+  function addCategory(name: string): boolean {
+    const n = name.trim();
+    if (!n || categories.some(c => c.toLowerCase() === n.toLowerCase())) return false;
+    setCategories(cs => [...cs, n]);
+    return true;
+  }
+  function renameCategory(oldName: string, newName: string) {
+    const n = newName.trim();
+    if (!n || categories.some(c => c.toLowerCase() === n.toLowerCase() && c !== oldName)) return;
+    setCategories(cs => cs.map(c => c === oldName ? n : c));
+  }
+  function deleteCategory(name: string) {
+    if (categories.length <= 1) return;
+    setCategories(cs => cs.filter(c => c !== name));
+  }
+
   const [timerType, setTimerType] = useState<TimerType>("STOPWATCH");
-  const [timerSubject, setTimerSubject] = useState("전공");
+  const [timerSubject, setTimerSubject] = useState(() => categories[0] || "기타");
   const [seconds, setSeconds] = useState(0);
   const [totalSeconds, setTotalSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
@@ -2010,6 +2173,16 @@ export default function Home() {
   const [reviewBack, setReviewBack] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const currentUser = state.user;
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const uid = currentUser?.userId;
+    const userNotes = uid ? (state.notes?.filter(n => n.userId === uid) ?? []) : [];
+    const userMats = uid ? (state.materials?.filter(m => m.userId === uid) ?? []) : [];
+    for (const n of userNotes) if (n.subject) counts[n.subject] = (counts[n.subject] || 0) + 1;
+    for (const m of userMats) if (m.category) counts[m.category] = (counts[m.category] || 0) + 1;
+    return counts;
+  }, [state.notes, state.materials, currentUser]);
 
   useEffect(() => { void syncAuthSession(); }, []);
 
@@ -2530,6 +2703,7 @@ export default function Home() {
             selectedSummary={selectedSummary} selectedSummaryId={selectedSummaryId}
             uploadStatus={uploadStatus} isSummarizing={isSummarizing}
             onUpload={handleUpload} onSelectSummary={setSelectedSummaryId} onDeleteSummary={deleteSummary}
+            categories={categories} onManageCategories={() => setCatManagerOpen(true)}
           />
         )}
 
@@ -2540,6 +2714,7 @@ export default function Home() {
             onSelectNote={setSelectedNoteId} onDraftChange={setNoteDraft}
             onSave={saveNote} onNew={newNote} onDelete={deleteNote}
             onSummarize={summarizeNote} onQuiz={generateQuiz}
+            categories={categories} onManageCategories={() => setCatManagerOpen(true)}
           />
         )}
 
@@ -2551,12 +2726,13 @@ export default function Home() {
             onTypeChange={switchTimerType} onSubjectChange={setTimerSubject}
             onStart={startTimer} onPause={pauseTimer} onFinish={finishTimer} onReset={resetTimer}
             onRecordLap={recordLap} onDeleteSession={() => {}}
+            categories={categories} onManageCategories={() => setCatManagerOpen(true)}
           />
         )}
 
         {activeTab === "timetable" && <TimetableView />}
 
-        {activeTab === "stats" && <StatsView sessions={userSessions} />}
+        {activeTab === "stats" && <StatsView sessions={userSessions} categories={categories} />}
 
         {activeTab === "anki" && (
           <AnkiView
@@ -2571,6 +2747,14 @@ export default function Home() {
         <ReviewModal
           queue={reviewQueue} idx={reviewIdx} backShown={reviewBack} anki={anki}
           onReveal={() => setReviewBack(true)} onGrade={ankiGrade} onClose={() => setReviewOpen(false)}
+        />
+      )}
+
+      {catManagerOpen && (
+        <CategoryManager
+          categories={categories} counts={categoryCounts}
+          onAdd={addCategory} onRename={renameCategory} onDelete={deleteCategory}
+          onClose={() => setCatManagerOpen(false)}
         />
       )}
     </div>
