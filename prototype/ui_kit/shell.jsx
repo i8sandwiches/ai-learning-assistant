@@ -1,20 +1,38 @@
 /* ============================================================
-   shell.jsx — Login screen, Sidebar, NavButton, Topbar/PageHeader
+   shell.jsx — LoginScreen, Sidebar (+ notifications, mobile)
    ============================================================ */
+const { useState: useStateS } = React;
+
+const NAV_ITEMS = [
+{ id: "overview", icon: "bar-chart-3", label: "대시보드" },
+{ id: "timetable", icon: "calendar-days", label: "시간표" },
+{ id: "timer", icon: "clock", label: "포모도로" },
+{ id: "notes", icon: "book-open-text", label: "학습 노트" },
+{ id: "materials", icon: "upload-cloud", label: "자료/요약" },
+{ id: "anki", icon: "layers", label: "Anki" },
+{ id: "stats", icon: "flame", label: "통계" }];
+
+
+const NOTIFICATIONS = [
+{ id: "n1", icon: "layers", title: "오늘 복습할 Anki 카드가 기다리고 있어요.", time: "방금 전", unread: true },
+{ id: "n2", icon: "flame", title: "어제 학습으로 연속 출석이 이어졌어요.", time: "어제", unread: true },
+{ id: "n3", icon: "sparkles", title: "루미가 새로운 단계에 도달했어요.", time: "2일 전", unread: false },
+{ id: "n4", icon: "check-circle-2", title: "지난주 학습 요약 리포트가 준비되었습니다.", time: "3일 전", unread: false }];
+
 
 function LoginScreen({ onLogin }) {
-  const [nick, setNick] = React.useState("");
+  const [nick, setNick] = useStateS("");
   return (
     <main className="auth-shell">
+      <div className="auth-aurora" />
       <section className="auth-panel">
         <div className="brand-mark"><Icon name="sparkles" size={28} /></div>
         <h1>AI 학습 어시스턴트</h1>
         <p>자료 요약, 노트 복습, Anki 카드, 타이머 기록, 캐릭터 성장까지 한 흐름으로 관리합니다.</p>
         <div className="nickname-row">
           <label htmlFor="nickname">닉네임</label>
-          <input id="nickname" type="text" placeholder="화면에 표시할 이름" maxLength={20}
-            value={nick} onChange={(e) => setNick(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") onLogin("KAKAO", nick); }} />
+          <input id="nickname" type="text" placeholder="화면에 표시할 이름" maxLength={20} value={nick}
+          onChange={(e) => setNick(e.target.value)} onKeyDown={(e) => {if (e.key === "Enter") onLogin("KAKAO", nick);}} />
           <span className="nickname-hint">비우고 진행하면 기본 이름이 사용됩니다.</span>
         </div>
         <div className="auth-actions">
@@ -33,151 +51,82 @@ function LoginScreen({ onLogin }) {
         </div>
         <p className="footer-note">로그인 정보는 이 브라우저에만 저장됩니다 (데모용).<br />실제 OAuth 연동은 백엔드 설정 후 가능합니다.</p>
       </section>
-    </main>
-  );
+    </main>);
+
 }
 
-const NAV_ITEMS = [
-  { id: "overview",   icon: "bar-chart-3",    label: "대시보드" },
-  { id: "timer",      icon: "clock",          label: "포모도로" },
-  { id: "notes",      icon: "book-open-text", label: "학습 노트" },
-  { id: "materials",  icon: "upload-cloud",   label: "자료/요약" },
-  { id: "anki",       icon: "layers",         label: "Anki" },
-  { id: "stats",      icon: "flame",          label: "통계" },
-];
-
-const NOTIFICATIONS = [
-  { id: "n1", icon: "layers", title: "오늘 복습할 Anki 카드 53개가 기다리고 있어요.", time: "방금 전", unread: true },
-  { id: "n2", icon: "flame", title: "어제 25분을 기록하며 연속 출석이 이어졌어요.", time: "어제", unread: true },
-  { id: "n3", icon: "sparkles", title: "루미가 Lv.18 ‘마스터’ 단계에 도달했어요.", time: "2일 전", unread: false },
-  { id: "n4", icon: "check-circle-2", title: "지난주 학습 요약 리포트가 준비되었습니다.", time: "3일 전", unread: false },
-];
-
-function NavButton({ icon, label, active, onClick }) {
-  return (
-    <button className={`nav-button ${active ? "active" : ""}`} onClick={onClick}>
-      <Icon name={icon} size={18} />
-      {label}
-    </button>
-  );
-}
-
-function Sidebar({ activeTab, onTab, user, onLogout, attendance = 0 }) {
-  const [open, setOpen] = React.useState(false);
-  const [notifyOpen, setNotifyOpen] = React.useState(false);
-  const [notes, setNotes] = React.useState(NOTIFICATIONS);
+function NotifyButton() {
+  const [open, setOpen] = useStateS(false);
+  const [notes, setNotes] = useStateS(NOTIFICATIONS);
   const unread = notes.filter((n) => n.unread).length;
-  const activeLabel = (NAV_ITEMS.find((it) => it.id === activeTab) || {}).label || "대시보드";
-  function pick(id) { onTab(id); setOpen(false); }
-  function markAllRead() { setNotes((ns) => ns.map((n) => ({ ...n, unread: false }))); }
   return (
-    <>
-      {/* mobile top bar — only shows under 1180px via CSS */}
-      <header className="mobile-bar">
-        <div className="mobile-left">
-          <button className="hamburger" aria-label="메뉴 열기" aria-expanded={open} onClick={() => setOpen(true)}>
-            <Icon name="menu" size={22} />
-          </button>
-          <span className="mobile-title">{activeLabel}</span>
-        </div>
-        <div className="mobile-actions">
-          <span className="attend-badge">
-            <strong>{user.nickname}</strong>님 {attendance}번째 출석!
-          </span>
-          <div className="notify-wrap">
-            <button className="topbar-icon-btn" aria-label="알림" title="알림"
-              aria-expanded={notifyOpen} onClick={() => setNotifyOpen((o) => !o)}>
-              <Icon name="bell" size={18} />
-              {unread > 0 && <span className="notify-dot" />}
-            </button>
-            {notifyOpen && (
-              <>
-                <div className="notify-scrim" onClick={() => setNotifyOpen(false)} />
-                <div className="notify-panel" role="dialog" aria-label="알림">
-                  <div className="notify-head">
-                    <span className="notify-title">알림{unread > 0 ? ` · ${unread}` : ""}</span>
-                    <button className="notify-readall" onClick={markAllRead} disabled={unread === 0}>모두 읽음</button>
-                  </div>
-                  <ul className="notify-list">
-                    {notes.map((n) => (
-                      <li key={n.id} className={`notify-item ${n.unread ? "is-unread" : ""}`}>
-                        <span className="notify-ico"><Icon name={n.icon} size={16} /></span>
-                        <div className="notify-body">
-                          <p className="notify-text">{n.title}</p>
-                          <span className="notify-time">{n.time}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </>
+    <div className="notify-wrap">
+      <button className="topbar-icon-btn" aria-label="알림" title="알림" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name="bell" size={18} />{unread > 0 && <span className="notify-dot" />}
+      </button>
+      {open && <>
+        <div className="notify-scrim" onClick={() => setOpen(false)} />
+        <div className="notify-panel" role="dialog" aria-label="알림">
+          <div className="notify-head">
+            <span className="notify-title">알림{unread > 0 ? ` · ${unread}` : ""}</span>
+            <button className="notify-readall" onClick={() => setNotes((ns) => ns.map((n) => ({ ...n, unread: false })))} disabled={unread === 0}>모두 읽음</button>
+          </div>
+          <ul className="notify-list">
+            {notes.map((n) =>
+            <li key={n.id} className={`notify-item ${n.unread ? "is-unread" : ""}`}>
+                <span className="notify-ico"><Icon name={n.icon} size={16} /></span>
+                <div className="notify-body"><p className="notify-text">{n.title}</p><span className="notify-time">{n.time}</span></div>
+              </li>
             )}
-          </div>
-          <button className="topbar-icon-btn" aria-label="로그아웃" title="로그아웃" onClick={onLogout}>
-            <Icon name="log-out" size={18} />
-          </button>
+          </ul>
         </div>
-      </header>
+      </>}
+    </div>);
 
-      {open && <div className="drawer-scrim" onClick={() => setOpen(false)} />}
-
-      <aside className={`sidebar ${open ? "is-open" : ""}`}>
-        <div>
-          <div className="brand">
-            <span className="brand-mark"><Icon name="sparkles" size={22} /></span>
-            <span>AI 학습 어시스턴트</span>
-            <button className="drawer-close" aria-label="메뉴 닫기" onClick={() => setOpen(false)}>
-              <Icon name="x" size={20} />
-            </button>
-          </div>
-          <nav className="nav">
-            {NAV_ITEMS.map((it) => (
-              <NavButton key={it.id} icon={it.icon} label={it.label}
-                active={activeTab === it.id} onClick={() => pick(it.id)} />
-            ))}
-          </nav>
-        </div>
-        <div className="user">
-          <span className="user-avatar">{user.nickname.slice(0, 1).toUpperCase()}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="user-name">{user.nickname}</div>
-            <div className="user-sub">{user.provider} 로그인</div>
-          </div>
-          <button className="user-logout" title="로그아웃" aria-label="로그아웃" onClick={onLogout}>
-            <Icon name="log-out" size={16} />
-          </button>
-        </div>
-      </aside>
-    </>
-  );
 }
 
-const TAB_TITLES = {
-  materials: "자료 / 요약", notes: "학습 노트", anki: "Anki 스케줄러",
-  timer: "타이머", stats: "학습 통계",
-};
-
-function Topbar({ tab, storageStatus }) {
-  return (
-    <header className="topbar">
+function Sidebar({ activeTab, onTab, user, onLogout, attendance }) {
+  const [open, setOpen] = useStateS(false);
+  const activeLabel = NAV_ITEMS.find((it) => it.id === activeTab)?.label ?? "대시보드";
+  const pick = (id) => {onTab(id);setOpen(false);};
+  return <>
+    <header className="mobile-bar">
+      <div className="mobile-left">
+        <button className="hamburger" aria-label="메뉴 열기" aria-expanded={open} onClick={() => setOpen(true)}><Icon name="menu" size={22} /></button>
+        <span className="mobile-title">{activeLabel}</span>
+      </div>
+      <div className="mobile-actions">
+        <span className="attend-badge"><strong>{user.nickname}</strong>님 {attendance}번째 출석!</span>
+        <NotifyButton />
+        <button className="topbar-icon-btn" aria-label="로그아웃" title="로그아웃" onClick={onLogout}><Icon name="log-out" size={18} /></button>
+      </div>
+    </header>
+    {open && <div className="drawer-scrim" onClick={() => setOpen(false)} />}
+    <aside className={`sidebar ${open ? "is-open" : ""}`}>
       <div>
-        <p className="eyebrow">Personal learning cockpit</p>
-        <h2>{TAB_TITLES[tab]}</h2>
+        <div className="brand">
+          <span className="brand-mark"><Icon name="sparkles" size={22} /></span>
+          <span>AI 학습 어시스턴트</span>
+          <button className="drawer-close" aria-label="메뉴 닫기" onClick={() => setOpen(false)}><Icon name="x" size={20} /></button>
+        </div>
+        <nav className="nav">
+          {NAV_ITEMS.map((it) =>
+          <button key={it.id} className={`nav-button ${activeTab === it.id ? "active" : ""}`} onClick={() => pick(it.id)}>
+              <Icon name={it.icon} size={18} />{it.label}
+            </button>
+          )}
+        </nav>
       </div>
-    </header>
-  );
+      <div className="user" data-comment-anchor="fbc44091c2-div-119-7">
+        <span className="user-avatar">{user.nickname.slice(0, 1).toUpperCase()}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="user-name">{user.nickname}</div>
+          <div className="user-sub">{user.provider} 로그인</div>
+        </div>
+        <button className="user-logout" title="로그아웃" aria-label="로그아웃" onClick={onLogout}><Icon name="log-out" size={16} /></button>
+      </div>
+    </aside>
+  </>;
 }
 
-function PageHeader({ children }) {
-  return (
-    <header className="page-header">
-      <div className="title-wrap">
-        <p className="eyebrow">Personal learning dashboard</p>
-        <h1 className="page-title">학습 대시보드</h1>
-      </div>
-      {children}
-    </header>
-  );
-}
-
-Object.assign(window, { LoginScreen, Sidebar, NavButton, Topbar, PageHeader, NAV_ITEMS });
+Object.assign(window, { LoginScreen, Sidebar, NotifyButton, NAV_ITEMS });
