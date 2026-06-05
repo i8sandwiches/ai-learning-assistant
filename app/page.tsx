@@ -314,8 +314,26 @@ function CharacterFace({ level }: { level: number }) {
    ============================================================ */
 function CharacterCard({ character }: { character: ReturnType<typeof calculateCharacter> }) {
   const bg = RANK_COLORS[rankColorIdx(character.level)];
+  const prevLevelRef = useRef(character.level);
+  const [celebrate, setCelebrate] = useState(false);
+
+  useEffect(() => {
+    if (character.level > prevLevelRef.current) {
+      setCelebrate(true);
+      const t = setTimeout(() => setCelebrate(false), 1400);
+      prevLevelRef.current = character.level;
+      return () => clearTimeout(t);
+    }
+    prevLevelRef.current = character.level;
+  }, [character.level]);
+
   return (
-    <div className="rumi" style={{ background: bg }}>
+    <div className={`rumi${celebrate ? " levelup" : ""}`} style={{ background: bg }}>
+      <div className="rumi-spark">
+        {celebrate && Array.from({ length: 8 }).map((_, i) => (
+          <span key={i} style={{ left: `${10 + i * 11}%`, animationDelay: `${i * 0.07}s` }} />
+        ))}
+      </div>
       <div className="rumi-head">
         <span className="rumi-tag">Lv.{character.level}</span>
         <span className="rumi-atd">{character.attendanceDays}일 출석</span>
@@ -415,12 +433,23 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
     const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
     const k = dayKey(d);
     const isSel = selDay === k;
-    const hasSched = (schedules[k] || []).length > 0;
+    const daySched = schedules[k] || [];
+    const fit = 2;
+    const overflow = daySched.length > fit;
+    const shown = overflow ? Math.max(1, fit - 1) : daySched.length;
     cells.push(
       <div key={d} className={`cal-cell ${isToday ? "today" : ""} ${isSel ? "cal-sel" : ""}`}
         onClick={() => selectDay(d)}>
-        <div className="d">{d}</div>
-        {(sessionDays.has(d) || hasSched) && <div className={`cal-mark ${hasSched ? "sched" : ""}`} />}
+        <span className="cal-date">{d}</span>
+        {sessionDays.has(d) && <span className="cal-session-dot" title="학습 기록" />}
+        {daySched.length > 0 && (
+          <div className="cal-bars">
+            {daySched.slice(0, shown).map(sc => (
+              <span key={sc.id} className="cal-bar" style={{ background: sc.color }} title={sc.text} />
+            ))}
+            {overflow && <span className="cal-bar-more">+{daySched.length - shown}</span>}
+          </div>
+        )}
       </div>
     );
   }
@@ -465,7 +494,7 @@ function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
               {dayScheds.length === 0 && <p className="empty-text" style={{ padding: "8px 0" }}>등록된 스케줄이 없습니다.</p>}
               {dayScheds.map(sc => (
                 <div key={sc.id} className="cal-schedule-row">
-                  <span className="cal-sc-dot" style={{ background: sc.color }} />
+                  <span className="cal-mark sched" style={{ background: sc.color }} />
                   <span className="cal-sc-text">{sc.text}</span>
                   <button className="cal-sc-del" onClick={() => removeSchedule(selDay, sc.id)} aria-label="삭제"><X size={12} /></button>
                 </div>
@@ -675,7 +704,7 @@ function MaterialsView({
   ];
 
   return (
-    <div className="two-column">
+    <div className="two-column view-enter">
       <section className="panel">
         <div className="section-heading"><h3>학습 자료 업로드</h3><span>PDF · 이미지 · TXT · MD</span></div>
         <label className={`upload-zone ${isSummarizing ? "busy" : ""}`}>
@@ -787,7 +816,7 @@ function NotesView({
   onQuiz: () => void;
 }) {
   return (
-    <div className="notes-layout">
+    <div className="notes-layout view-enter">
       <section className="panel note-index">
         <div className="section-heading">
           <h3>노트 목록</h3>
@@ -893,8 +922,8 @@ function TimerView({
   ];
 
   return (
-    <div className="timer-layout">
-      <section className="panel timer-panel">
+    <div className="timer-layout view-enter">
+      <section className={`panel timer-panel${isRunning ? " timer-running" : ""}`}>
         <div className="segmented">
           <button className={timerType === "STOPWATCH" ? "active" : ""} onClick={() => switchMode("STOPWATCH")}>스톱워치</button>
           <button className={timerType === "TIMER" ? "active" : ""} onClick={() => switchMode("TIMER")}>타이머</button>
@@ -940,7 +969,26 @@ function TimerView({
           </div>
         )}
 
-        <div className="timer-face">{formatTimer(seconds)}</div>
+        {(() => {
+          const R = 110, C = 2 * Math.PI * R;
+          const totalSec = timerType === "TIMER" ? timerMin * 60
+            : timerType === "POMODORO" ? (pomoPhase === "study" ? pomoStudy : pomoBreak) * 60
+            : 0;
+          const pct = totalSec > 0 ? Math.min(1, seconds / totalSec) : 0;
+          const dashOffset = C * (1 - pct);
+          return (
+            <div className={`timer-ring${timerType === "POMODORO" && pomoPhase === "break" ? " break" : ""}`}>
+              <svg viewBox="0 0 240 240">
+                <circle className="ring-track" cx="120" cy="120" r={R} />
+                {timerType !== "STOPWATCH" && (
+                  <circle className="ring-fill" cx="120" cy="120" r={R}
+                    strokeDasharray={C} strokeDashoffset={dashOffset} />
+                )}
+              </svg>
+              <div className="timer-face">{formatTimer(seconds)}</div>
+            </div>
+          );
+        })()}
         <div className="timer-actions">
           {isRunning
             ? <button className="secondary-button" onClick={onPause}><Pause size={17} /> 일시정지</button>
@@ -1015,7 +1063,7 @@ function StatsView({ sessions }: { sessions: StudySession[] }) {
   const maxSub = Math.max(30, ...subjectTotals.map(x => x.value));
 
   return (
-    <div className="stats-grid">
+    <div className="stats-grid view-enter">
       <section className="metric-card"><span>이번 달 학습</span><strong>{formatMinutes(monthly)}</strong><p>월간 누적</p></section>
       <section className="metric-card"><span>세션 수</span><strong>{sessions.length}회</strong><p>기록된 학습</p></section>
 
@@ -1392,7 +1440,7 @@ function AnkiView({
   }
 
   return (
-    <div className="anki-page">
+    <div className="anki-page view-enter">
       <AnkiStatsPanel anki={anki} />
 
       <div className="anki-main-full">
@@ -2143,6 +2191,7 @@ export default function Home() {
   if (!currentUser) {
     return (
       <main className="auth-shell">
+        <div className="auth-aurora" />
         <section className="auth-panel">
           <div className="brand-mark"><Sparkles size={28} /></div>
           <h1>AI 학습 어시스턴트</h1>

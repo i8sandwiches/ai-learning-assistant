@@ -595,6 +595,7 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 
 /* ===== Anki tab ===== */
 .anki-page { display: flex; flex-direction: column; gap: 16px; }
+.anki-main-full { display: flex; flex-direction: column; gap: 16px; }
 .anki-stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; align-items: stretch; }
 .anki-stats .panel { display: flex; flex-direction: column; }
 .anki-stats .panel-title, .anki-stats .panel-meta { white-space: nowrap; }
