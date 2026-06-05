@@ -3,8 +3,11 @@
 import {
   BarChart3,
   Bell,
+  BookmarkPlus,
   BookOpenText,
   Bot,
+  CalendarDays,
+  Check,
   CheckCircle2,
   Clock,
   Flame,
@@ -16,7 +19,9 @@ import {
   Pin,
   Play,
   Plus,
+  RotateCcw,
   Save,
+  Settings2,
   Sparkles,
   Square,
   TimerReset,
@@ -24,7 +29,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import React, { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getSession, signIn, signOut } from "next-auth/react";
 import {
   AnkiCard,
@@ -97,16 +102,18 @@ const NOTIFICATIONS = [
 const subjects = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
 
 const NAV_ITEMS = [
-  { id: "overview",  icon: <BarChart3 size={18} />,    label: "대시보드" },
-  { id: "timer",     icon: <Clock size={18} />,        label: "포모도로" },
-  { id: "notes",     icon: <BookOpenText size={18} />, label: "학습 노트" },
-  { id: "materials", icon: <UploadCloud size={18} />,  label: "자료/요약" },
-  { id: "anki",      icon: <LayersIcon size={18} />,   label: "Anki" },
-  { id: "stats",     icon: <Flame size={18} />,        label: "통계" },
+  { id: "overview",   icon: <BarChart3 size={18} />,     label: "대시보드" },
+  { id: "timetable",  icon: <CalendarDays size={18} />,  label: "시간표" },
+  { id: "timer",      icon: <Clock size={18} />,         label: "포모도로" },
+  { id: "notes",      icon: <BookOpenText size={18} />,  label: "학습 노트" },
+  { id: "materials",  icon: <UploadCloud size={18} />,   label: "자료/요약" },
+  { id: "anki",       icon: <LayersIcon size={18} />,    label: "Anki" },
+  { id: "stats",      icon: <Flame size={18} />,         label: "통계" },
 ] as const;
 
 const TAB_TITLES: Record<string, string> = {
   overview: "학습 대시보드",
+  timetable: "시간표",
   materials: "자료 / 요약",
   notes: "학습 노트",
   anki: "Anki 스케줄러",
@@ -114,7 +121,7 @@ const TAB_TITLES: Record<string, string> = {
   stats: "학습 통계",
 };
 
-type TabId = "overview" | "materials" | "notes" | "timer" | "stats" | "anki";
+type TabId = "overview" | "timetable" | "materials" | "notes" | "timer" | "stats" | "anki";
 type HeatView = "year" | "month" | "week";
 type SessionUser = {
   email?: string | null;
@@ -873,127 +880,173 @@ function NotesView({
 /* ============================================================
    TimerView — Stopwatch / Timer / Pomodoro
    ============================================================ */
-function TimerView({
-  timerType, seconds, isRunning, subject, sessions,
-  onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset
-}: {
-  timerType: TimerType;
-  seconds: number;
-  isRunning: boolean;
-  subject: string;
-  sessions: StudySession[];
-  onTypeChange: (t: TimerType) => void;
-  onSubjectChange: (s: string) => void;
-  onStart: () => void;
-  onPause: () => void;
-  onFinish: () => void;
-  onReset: () => void;
-}) {
-  const [timerMin, setTimerMin] = useState(30);
-  const [pomoStudy, setPomoStudy] = useState(25);
-  const [pomoBreak, setPomoBreak] = useState(5);
-  const [pomoRepeat, setPomoRepeat] = useState(4);
-  const [pomoPhase, setPomoPhase] = useState<"study" | "break">("study");
-  const [pomoRound, setPomoRound] = useState(0);
-  const [presets, setPresets] = useState([
-    { id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 },
-    { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 },
-  ]);
+interface TimerCfg {
+  timerH: number; timerM: number; timerS: number;
+  pomoStudySec: number; pomoBreakSec: number;
+  pomoRepeat: number; pomoRound: number;
+}
 
-  function switchMode(m: TimerType) {
-    onTypeChange(m);
-    if (m === "STOPWATCH") onReset();
-    else if (m === "TIMER") { onReset(); }
-    else { onReset(); setPomoRound(0); setPomoPhase("study"); }
-  }
+function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, totalSeconds, onSet }: {
+  kind: string; label: string; hms: { m: number; s: number }; totalSec: number;
+  active: boolean; running: boolean; liveSeconds: number; totalSeconds: number;
+  onSet: (part: string, val: string, max: number) => void;
+}) {
+  const R = 82, C = 2 * Math.PI * R;
+  const showLive = running && active;
+  const faceSec = showLive ? liveSeconds : totalSec;
+  const pct = showLive && totalSeconds > 0 ? Math.min(1, 1 - liveSeconds / totalSeconds) : 0;
+  const dash = C * (1 - pct);
+  const editable = !running;
+  const stateCls = running ? (active ? "is-active" : "is-idle") : "";
+  return (
+    <div className={`pomo-clock ${kind} ${stateCls}`}>
+      <div className="pomo-clock-label"><span className={`pomo-clock-dot ${kind}`} />{label}</div>
+      <div className={`timer-ring pomo ${kind === "break" ? "break" : ""} ${showLive ? "running-ring" : ""}`}>
+        <svg viewBox="0 0 200 200">
+          <circle className="ring-track" cx="100" cy="100" r={R} />
+          <circle className="ring-fill" cx="100" cy="100" r={R} strokeDasharray={C} strokeDashoffset={dash} />
+        </svg>
+        {editable
+          ? <div className="timer-face timer-face-edit pomo-face">
+              <div className="timer-hms">
+                <input className="thms-input pomo-thms" type="number" min={0} max={99} value={hms.m}
+                  onChange={e => onSet("m", e.target.value, 99)} onFocus={e => e.target.select()} aria-label={`${label} 분`} />
+                <span className="thms-sep">:</span>
+                <input className="thms-input pomo-thms" type="number" min={0} max={59} value={hms.s}
+                  onChange={e => onSet("s", e.target.value, 59)} onFocus={e => e.target.select()} aria-label={`${label} 초`} />
+              </div>
+            </div>
+          : <div className="timer-face pomo-face">{formatTimer(faceSec)}</div>
+        }
+      </div>
+    </div>
+  );
+}
+
+function TimerView({
+  timerType, seconds, totalSeconds, isRunning, subject, sessions, pomoPhase,
+  timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onDeleteSession,
+}: {
+  timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean;
+  subject: string; sessions: StudySession[]; pomoPhase: string;
+  timerCfg: TimerCfg; setTimerCfg: React.Dispatch<React.SetStateAction<TimerCfg>>;
+  onTypeChange: (t: TimerType) => void; onSubjectChange: (s: string) => void;
+  onStart: () => void; onPause: () => void; onFinish: () => void; onReset: () => void;
+  onRecordLap: () => void; onDeleteSession: (ids: string[]) => void;
+}) {
+  const [presets, setPresets] = useState<{ id: string; name: string; study: number; brk: number; repeat: number }[]>(() => {
+    try { return JSON.parse(localStorage.getItem("hak.presets") || "null") || [{ id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 }, { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 }]; }
+    catch { return []; }
+  });
+  const [timerFavs, setTimerFavs] = useState<{ id: string; name: string; h: number; m: number; s: number }[]>(() => {
+    try { return JSON.parse(localStorage.getItem("hak.timerFavs") || "null") || [{ id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 }, { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 }]; }
+    catch { return []; }
+  });
+  useEffect(() => { try { localStorage.setItem("hak.presets", JSON.stringify(presets)); } catch {} }, [presets]);
+  useEffect(() => { try { localStorage.setItem("hak.timerFavs", JSON.stringify(timerFavs)); } catch {} }, [timerFavs]);
+
+  const secToHMS = (t: number) => ({ h: Math.floor(t / 3600), m: Math.floor(t % 3600 / 60), s: t % 60 });
+  const pomoStudyHMS = secToHMS(timerCfg.pomoStudySec || 0);
+  const pomoBreakHMS = secToHMS(timerCfg.pomoBreakSec || 0);
+
+  const setPomoHMS = (key: "pomoStudySec" | "pomoBreakSec", part: string, val: string, max: number) =>
+    setTimerCfg(c => {
+      const cur = secToHMS(c[key] || 0) as Record<string, number>;
+      cur[part] = Math.max(0, Math.min(max, Math.floor(+val) || 0));
+      return { ...c, [key]: Math.max(0, cur.h * 3600 + cur.m * 60 + cur.s) };
+    });
+
+  const setHMS = (key: string, val: string, max: number) =>
+    setTimerCfg(c => ({ ...c, [key]: Math.max(0, Math.min(max, Math.floor(+val) || 0)) }));
+
   function applyPreset(p: typeof presets[0]) {
-    setPomoStudy(p.study); setPomoBreak(p.brk); setPomoRepeat(p.repeat);
-    setPomoRound(0); setPomoPhase("study"); onReset();
+    setTimerCfg(c => ({ ...c, pomoStudySec: p.study * 60, pomoBreakSec: p.brk * 60, pomoRepeat: p.repeat }));
+    onReset();
   }
   function savePreset() {
     if (presets.length >= 10) return;
-    setPresets(ps => [...ps, { id: "p" + Date.now(), name: `${pomoStudy}분/${pomoBreak}분×${pomoRepeat}`, study: pomoStudy, brk: pomoBreak, repeat: pomoRepeat }]);
+    const sMin = Math.round(timerCfg.pomoStudySec / 60), bMin = Math.round(timerCfg.pomoBreakSec / 60);
+    setPresets(ps => [...ps, { id: "p" + Date.now(), name: `${sMin}분/${bMin}분×${timerCfg.pomoRepeat}`, study: sMin, brk: bMin, repeat: timerCfg.pomoRepeat }]);
   }
+  function applyFav(f: typeof timerFavs[0]) {
+    setTimerCfg(c => ({ ...c, timerH: f.h, timerM: f.m, timerS: f.s }));
+    onReset();
+  }
+  function saveFav() {
+    if (timerFavs.length >= 10) return;
+    const { timerH: h, timerM: m, timerS: s } = timerCfg;
+    if (h + m + s === 0) return;
+    const name = [h ? `${h}시간` : "", m ? `${m}분` : "", s ? `${s}초` : ""].filter(Boolean).join(" ");
+    setTimerFavs(fs => [...fs, { id: "t" + Date.now(), name, h, m, s }]);
+  }
+  const favSecs = (f: typeof timerFavs[0]) => f.h * 3600 + f.m * 60 + f.s;
 
-  const POMO_FIELDS = [
-    { label: "학습", val: pomoStudy, set: setPomoStudy, min: 1, max: 90, step: 5 },
-    { label: "휴게", val: pomoBreak, set: setPomoBreak, min: 1, max: 30, step: 1 },
-    { label: "반복", val: pomoRepeat, set: setPomoRepeat, min: 1, max: 12, step: 1, unit: "회" },
-  ];
+  const R = 110, C = 2 * Math.PI * R;
+  const pct = totalSeconds > 0 ? Math.min(1, 1 - seconds / totalSeconds) : 0;
+  const dashOffset = C * (1 - pct);
+  const editableTimer = timerType === "TIMER" && !isRunning;
 
   return (
     <div className="timer-layout view-enter">
       <section className={`panel timer-panel${isRunning ? " timer-running" : ""}`}>
         <div className="segmented">
-          <button className={timerType === "STOPWATCH" ? "active" : ""} onClick={() => switchMode("STOPWATCH")}>스톱워치</button>
-          <button className={timerType === "TIMER" ? "active" : ""} onClick={() => switchMode("TIMER")}>타이머</button>
-          <button className={timerType === "POMODORO" ? "active" : ""} onClick={() => switchMode("POMODORO")}>포모도로</button>
+          <button className={timerType === "STOPWATCH" ? "active" : ""} onClick={() => onTypeChange("STOPWATCH")}>스톱워치</button>
+          <button className={timerType === "TIMER" ? "active" : ""} onClick={() => onTypeChange("TIMER")}>타이머</button>
+          <button className={timerType === "POMODORO" ? "active" : ""} onClick={() => onTypeChange("POMODORO")}>포모도로</button>
         </div>
         <select value={subject} onChange={e => onSubjectChange(e.target.value)} aria-label="과목" style={{ maxWidth: 200 }}>
           {subjects.map(s => <option key={s}>{s}</option>)}
         </select>
 
-        {timerType === "TIMER" && (
-          <div className="pomo-settings">
-            <div className="pomo-row">
-              <span>시간</span>
-              <div className="pomo-input-group">
-                <button className="pomo-step" onClick={() => setTimerMin(v => Math.max(1, v - 5))}>−</button>
-                <input type="number" min={1} max={180} value={timerMin}
-                  onChange={e => setTimerMin(Math.max(1, +e.target.value))} />
-                <button className="pomo-step" onClick={() => setTimerMin(v => Math.min(180, v + 5))}>+</button>
-                <span className="pomo-unit">분</span>
+        {timerType === "POMODORO"
+          ? <div className="pomo-clocks">
+              <div className="pomo-cycle-rep pomo-repeat-top">
+                <button className="pomo-step" disabled={isRunning} onClick={() => setTimerCfg(c => ({ ...c, pomoRepeat: Math.max(1, c.pomoRepeat - 1) }))}>−</button>
+                <span className="pomo-cycle-text"><strong>{timerCfg.pomoRound}</strong> / {timerCfg.pomoRepeat} 회 반복</span>
+                <button className="pomo-step" disabled={isRunning} onClick={() => setTimerCfg(c => ({ ...c, pomoRepeat: Math.min(12, c.pomoRepeat + 1) }))}>+</button>
+              </div>
+              <div className="pomo-clocks-row">
+                <PomoClock kind="study" label="학습시간" hms={pomoStudyHMS} totalSec={timerCfg.pomoStudySec}
+                  active={pomoPhase === "study"} running={isRunning} liveSeconds={seconds} totalSeconds={totalSeconds}
+                  onSet={(p, v, mx) => setPomoHMS("pomoStudySec", p, v, mx)} />
+                <div className="pomo-cycle"><div className="pomo-divider" /></div>
+                <PomoClock kind="break" label="휴게시간" hms={pomoBreakHMS} totalSec={timerCfg.pomoBreakSec}
+                  active={pomoPhase === "break"} running={isRunning} liveSeconds={seconds} totalSeconds={totalSeconds}
+                  onSet={(p, v, mx) => setPomoHMS("pomoBreakSec", p, v, mx)} />
               </div>
             </div>
-          </div>
-        )}
-
-        {timerType === "POMODORO" && (
-          <div className="pomo-settings">
-            {POMO_FIELDS.map(({ label, val, set, min, max, step, unit }) => (
-              <div key={label} className="pomo-row">
-                <span>{label}</span>
-                <div className="pomo-input-group">
-                  <button className="pomo-step" onClick={() => set(v => Math.max(min, v - step))}>−</button>
-                  <input type="number" min={min} max={max} value={val}
-                    onChange={e => set(Math.max(min, Math.min(max, +e.target.value)))} />
-                  <button className="pomo-step" onClick={() => set(v => Math.min(max, v + step))}>+</button>
-                  <span className="pomo-unit">{unit || "분"}</span>
-                </div>
-              </div>
-            ))}
-            <div className="pomo-phase-bar">
-              <span className={`pomo-badge ${pomoPhase}`}>{pomoPhase === "study" ? "학습 중" : "휴식 중"}</span>
-              <span className="pomo-rounds-text">{pomoRound} / {pomoRepeat} 라운드</span>
-            </div>
-          </div>
-        )}
-
-        {(() => {
-          const R = 110, C = 2 * Math.PI * R;
-          const totalSec = timerType === "TIMER" ? timerMin * 60
-            : timerType === "POMODORO" ? (pomoPhase === "study" ? pomoStudy : pomoBreak) * 60
-            : 0;
-          const pct = totalSec > 0 ? Math.min(1, seconds / totalSec) : 0;
-          const dashOffset = C * (1 - pct);
-          return (
-            <div className={`timer-ring${timerType === "POMODORO" && pomoPhase === "break" ? " break" : ""}`}>
+          : <div className={`timer-ring${editableTimer ? " editable" : ""}`}>
               <svg viewBox="0 0 240 240">
                 <circle className="ring-track" cx="120" cy="120" r={R} />
                 {timerType !== "STOPWATCH" && (
-                  <circle className="ring-fill" cx="120" cy="120" r={R}
-                    strokeDasharray={C} strokeDashoffset={dashOffset} />
+                  <circle className="ring-fill" cx="120" cy="120" r={R} strokeDasharray={C} strokeDashoffset={dashOffset} />
                 )}
               </svg>
-              <div className="timer-face">{formatTimer(seconds)}</div>
+              {editableTimer
+                ? <div className="timer-face timer-face-edit">
+                    <div className="timer-hms">
+                      <input className="thms-input" type="number" min={0} max={23} value={timerCfg.timerH}
+                        onChange={e => setHMS("timerH", e.target.value, 23)} onFocus={e => e.target.select()} aria-label="시간" />
+                      <span className="thms-sep">:</span>
+                      <input className="thms-input" type="number" min={0} max={59} value={timerCfg.timerM}
+                        onChange={e => setHMS("timerM", e.target.value, 59)} onFocus={e => e.target.select()} aria-label="분" />
+                      <span className="thms-sep">:</span>
+                      <input className="thms-input" type="number" min={0} max={59} value={timerCfg.timerS}
+                        onChange={e => setHMS("timerS", e.target.value, 59)} onFocus={e => e.target.select()} aria-label="초" />
+                    </div>
+                  </div>
+                : <div className="timer-face">{formatTimer(seconds)}</div>
+              }
             </div>
-          );
-        })()}
+        }
+
         <div className="timer-actions">
           {isRunning
             ? <button className="secondary-button" onClick={onPause}><Pause size={17} /> 일시정지</button>
             : <button className="primary-button" onClick={onStart}><Play size={17} /> 시작</button>}
-          <button className="secondary-button" onClick={onFinish}><Square size={17} /> 종료/기록</button>
+          <button className="secondary-button" onClick={timerType === "STOPWATCH" ? onRecordLap : onFinish}>
+            <BookmarkPlus size={17} /> 기록
+          </button>
           <button className="ghost-button" onClick={onReset}><TimerReset size={17} /> 초기화</button>
         </div>
       </section>
@@ -1005,9 +1058,7 @@ function TimerView({
               <h3>포모도로 프리셋</h3>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ color: "var(--muted)", fontSize: 11 }}>{presets.length}/10</span>
-                <button className="chip-button" disabled={presets.length >= 10} onClick={savePreset}>
-                  <Pin size={13} />현재 고정
-                </button>
+                <button className="chip-button" disabled={presets.length >= 10} onClick={savePreset}><Pin size={13} />현재 고정</button>
               </div>
             </div>
             <div className="preset-list">
@@ -1015,19 +1066,40 @@ function TimerView({
               {presets.map(p => (
                 <div key={p.id} className="preset-row">
                   <button className="preset-btn" onClick={() => applyPreset(p)}>
-                    <strong>{p.name}</strong>
-                    <span>{p.study}분 학습 · {p.brk}분 휴식 · {p.repeat}회</span>
+                    <strong>{p.name}</strong><span>{p.study}분 학습 · {p.brk}분 휴식 · {p.repeat}회</span>
                   </button>
-                  <button className="icon-button" onClick={() => setPresets(ps => ps.filter(x => x.id !== p.id))} aria-label="삭제">
-                    <X size={14} />
+                  <button className="icon-button" onClick={() => setPresets(ps => ps.filter(x => x.id !== p.id))} aria-label="삭제"><X size={14} /></button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {timerType === "TIMER" && (
+          <section className="panel">
+            <div className="section-heading">
+              <h3>타이머 즐겨찾기</h3>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ color: "var(--muted)", fontSize: 11 }}>{timerFavs.length}/10</span>
+                <button className="chip-button"
+                  disabled={timerFavs.length >= 10 || (timerCfg.timerH || 0) + (timerCfg.timerM || 0) + (timerCfg.timerS || 0) === 0}
+                  onClick={saveFav}><Pin size={13} />현재 시간 저장</button>
+              </div>
+            </div>
+            <div className="preset-list">
+              {timerFavs.length === 0 && <p className="empty-text">저장된 타이머가 없습니다.</p>}
+              {timerFavs.map(f => (
+                <div key={f.id} className="preset-row">
+                  <button className="preset-btn" onClick={() => applyFav(f)}>
+                    <strong>{f.name}</strong><span>{formatTimer(favSecs(f))}</span>
                   </button>
+                  <button className="icon-button" onClick={() => setTimerFavs(fs => fs.filter(x => x.id !== f.id))} aria-label="삭제"><X size={14} /></button>
                 </div>
               ))}
             </div>
           </section>
         )}
         <section className="panel">
-          <div className="section-heading"><h3>자동 기록</h3><span>최근 8개</span></div>
+          <div className="section-heading"><h3>자동 기록</h3><span>{sessions.length}개</span></div>
           <SessionList sessions={sessions.slice(0, 8)} />
         </section>
       </div>
@@ -1114,6 +1186,139 @@ function StatsView({ sessions }: { sessions: StudySession[] }) {
           }
         </div>
       </section>
+    </div>
+  );
+}
+
+/* ============================================================
+   TimetableView
+   ============================================================ */
+function TimetableView() {
+  const DAYS = ["월","화","수","목","금","토","일"];
+  const HOURS = Array.from({ length: 17 }, (_, i) => i + 7);
+  const COLORS = ["#e0533a","#e8902f","#d9b008","#3fa45b","#3b78d9","#9a59c2"];
+  const [blocks, setBlocks] = useState<Record<string, { label: string; color: string }>>(() => {
+    try { return JSON.parse(localStorage.getItem("hak.timetable") || "{}"); } catch { return {}; }
+  });
+  useEffect(() => { try { localStorage.setItem("hak.timetable", JSON.stringify(blocks)); } catch {} }, [blocks]);
+  const [editing, setEditing] = useState<{ d: number; h: number; k: string; isNew: boolean } | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editColor, setEditColor] = useState(COLORS[3]);
+  const [selected, setSelected] = useState(new Set<string>());
+  const [bulkLabel, setBulkLabel] = useState("");
+  const [bulkColor, setBulkColor] = useState(COLORS[3]);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const cellKey = (d: number, h: number) => `${d}-${h}`;
+  const clearAll = () => { setBlocks({}); setSelected(new Set()); setConfirmReset(false); };
+  const handleCellClick = (d: number, h: number) => {
+    const k = cellKey(d, h), b = blocks[k];
+    if (b) { setEditLabel(b.label); setEditColor(b.color); setEditing({ d, h, k, isNew: false }); }
+    else { setSelected(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; }); }
+  };
+  const saveBulk = () => {
+    if (!bulkLabel.trim() || selected.size === 0) return;
+    const upd: Record<string, { label: string; color: string }> = {};
+    selected.forEach(k => { upd[k] = { label: bulkLabel.trim(), color: bulkColor }; });
+    setBlocks(b => ({ ...b, ...upd })); setSelected(new Set()); setBulkLabel("");
+  };
+  const save = () => {
+    if (!editing) return;
+    if (editLabel.trim()) setBlocks(b => ({ ...b, [editing.k]: { label: editLabel.trim(), color: editColor } }));
+    else setBlocks(b => { const n = { ...b }; delete n[editing.k]; return n; });
+    setEditing(null);
+  };
+  return (
+    <div className="timetable-layout view-enter">
+      <section className="panel timetable-panel">
+        <div>
+          <div className="section-heading">
+            <h3>주간 시간표</h3>
+            {selected.size === 0 && <span style={{ color: "var(--muted)", fontSize: 11 }}>빈 칸 클릭으로 선택 · 채워진 칸은 편집</span>}
+            <button className="icon-button" title="시간표 초기화" aria-label="시간표 초기화" onClick={() => setConfirmReset(true)}
+              style={{ marginLeft: "auto", opacity: Object.keys(blocks).length > 0 ? 1 : 0.3, pointerEvents: Object.keys(blocks).length > 0 ? "auto" : "none" }}>
+              <RotateCcw size={15} />
+            </button>
+          </div>
+          {selected.size > 0 && (
+            <div className="tt-bulk-bar">
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                {COLORS.map(c => <button key={c} type="button" className={`cal-swatch${bulkColor === c ? " active" : ""}`} style={{ background: c, width: 18, height: 18, borderRadius: "50%" }} onClick={() => setBulkColor(c)} />)}
+              </div>
+              <input className="cal-text-input" style={{ height: 30, fontSize: 13, padding: "0 10px", flex: 1, minWidth: 0 }} placeholder="일정 이름…" value={bulkLabel}
+                autoFocus onChange={e => setBulkLabel(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") saveBulk(); if (e.key === "Escape") setSelected(new Set()); }} />
+              <button className="chip-button" style={{ flexShrink: 0 }} disabled={!bulkLabel.trim()} onClick={saveBulk}><Check size={13} />{selected.size}칸 추가</button>
+              <button className="chip-button" style={{ flexShrink: 0 }} onClick={() => setSelected(new Set())}><X size={13} />취소</button>
+            </div>
+          )}
+        </div>
+        <div className="tt-scroll">
+          <div className="timetable-grid" style={{ gridTemplateColumns: "44px repeat(7,1fr)" }}>
+            <div className="tt-corner" />
+            {DAYS.map(d => <div key={d} className="tt-day-head">{d}</div>)}
+            {HOURS.map(h => (
+              <React.Fragment key={h}>
+                <div className="tt-hour">
+                  <div className="tt-hour-label"><span className="tt-hh">{h}</span><span className="tt-mm">:00</span></div>
+                </div>
+                {DAYS.map((_, di) => {
+                  const k = cellKey(di, h), b = blocks[k], isSel = selected.has(k);
+                  return (
+                    <div key={k} className={`tt-cell ${b ? "has-block" : ""} ${isSel ? "tt-selected" : ""}`}
+                      style={b ? { borderLeft: `3px solid ${b.color}`, background: b.color + "18" } : isSel ? { background: bulkColor + "28", borderLeft: `3px solid ${bulkColor}` } : {}}
+                      onClick={() => handleCellClick(di, h)}>
+                      {b && <span className="tt-block-label" style={{ color: b.color }}>{b.label}</span>}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+            <div className="tt-hour tt-hour-end">
+              <div className="tt-hour-label"><span className="tt-hh">24</span><span className="tt-mm">:00</span></div>
+            </div>
+            {DAYS.map((_, di) => <div key={`end-${di}`} className="tt-cell tt-cell-end" />)}
+          </div>
+        </div>
+      </section>
+
+      {confirmReset && (
+        <div className="cal-modal-overlay" onClick={() => setConfirmReset(false)}>
+          <div className="cal-day-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: 320 }}>
+            <div className="cal-day-header">
+              <h4>시간표 초기화</h4>
+              <button className="icon-button" onClick={() => setConfirmReset(false)} aria-label="닫기"><X size={14} /></button>
+            </div>
+            <p style={{ margin: "12px 0", fontSize: 13, color: "var(--ink-2)", lineHeight: 1.55 }}>시간표에 입력된 모든 일정이 삭제됩니다.<br />정말 초기화할까요?</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="ghost-button" onClick={() => setConfirmReset(false)}>취소</button>
+              <button className="danger-button" onClick={clearAll}><Trash2 size={15} />초기화</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editing && (
+        <div className="cal-modal-overlay" onClick={() => setEditing(null)}>
+          <div className="cal-day-panel" onClick={e => e.stopPropagation()}>
+            <div className="cal-day-header">
+              <h4>{DAYS[editing.d]}요일 {editing.h}:00</h4>
+              <button className="icon-button" onClick={() => setEditing(null)} aria-label="닫기"><X size={14} /></button>
+            </div>
+            <div style={{ padding: "12px 0", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div className="cal-color-swatches">
+                {COLORS.map(c => <button key={c} type="button" className={`cal-swatch${editColor === c ? " active" : ""}`} style={{ background: c }} onClick={() => setEditColor(c)} />)}
+              </div>
+              <input className="cal-text-input" autoFocus placeholder="수업/활동 이름…" value={editLabel}
+                onChange={e => setEditLabel(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(null); }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="primary-button" onClick={save}><Check size={15} color="#fff" />저장</button>
+                {!editing.isNew && <button className="danger-button" onClick={() => { setBlocks(b => { const n = { ...b }; delete n[editing!.k]; return n; }); setEditing(null); }}><Trash2 size={15} />삭제</button>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1785,7 +1990,14 @@ export default function Home() {
   const [timerType, setTimerType] = useState<TimerType>("STOPWATCH");
   const [timerSubject, setTimerSubject] = useState("전공");
   const [seconds, setSeconds] = useState(0);
+  const [totalSeconds, setTotalSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
+  const [pomoPhase, setPomoPhase] = useState<"study" | "break">("study");
+  const [timerCfg, setTimerCfg] = useState<TimerCfg>({
+    timerH: 0, timerM: 30, timerS: 0,
+    pomoStudySec: 1500, pomoBreakSec: 300,
+    pomoRepeat: 4, pomoRound: 0,
+  });
   const timerStartRef = useRef<Date | null>(null);
 
   // Anki state
@@ -1831,11 +2043,40 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, [isRunning, timerType]);
 
+  /* sync seconds/totalSeconds when cfg changes while idle */
   useEffect(() => {
-    if ((timerType === "POMODORO" || timerType === "TIMER") && isRunning && seconds === 0) {
-      finishTimer();
+    if (isRunning) return;
+    if (timerType === "TIMER") {
+      const s = Math.max(1, (timerCfg.timerH || 0) * 3600 + (timerCfg.timerM || 0) * 60 + (timerCfg.timerS || 0));
+      setSeconds(s); setTotalSeconds(s);
+    } else if (timerType === "POMODORO") {
+      const s = pomoPhase === "study" ? timerCfg.pomoStudySec : timerCfg.pomoBreakSec;
+      setSeconds(s); setTotalSeconds(s);
     }
-  }, [seconds, isRunning, timerType]);
+  }, [timerCfg.timerH, timerCfg.timerM, timerCfg.timerS, timerCfg.pomoStudySec, timerCfg.pomoBreakSec, timerType, pomoPhase, isRunning]);
+
+  useEffect(() => {
+    if (timerType === "TIMER" && isRunning && seconds === 0) {
+      finishTimer();
+    } else if (timerType === "POMODORO" && isRunning && seconds === 0) {
+      if (pomoPhase === "study") {
+        recordSession(Math.max(1, Math.round(timerCfg.pomoStudySec / 60)));
+        const nextRound = timerCfg.pomoRound + 1;
+        setTimerCfg(c => ({ ...c, pomoRound: nextRound }));
+        if (nextRound >= timerCfg.pomoRepeat) {
+          resetTimer();
+        } else {
+          setPomoPhase("break");
+          const t = timerCfg.pomoBreakSec;
+          setSeconds(t); setTotalSeconds(t);
+        }
+      } else {
+        setPomoPhase("study");
+        const t = timerCfg.pomoStudySec;
+        setSeconds(t); setTotalSeconds(t);
+      }
+    }
+  }, [seconds, isRunning, timerType, pomoPhase]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -2162,29 +2403,52 @@ export default function Home() {
     void persistStore({ operation: "deleteSummary", userId: currentUser.userId, summaryId });
   }
 
-  function startTimer() { timerStartRef.current = new Date(); setIsRunning(true); }
+  function initialSecsFor(type: TimerType, phase?: string) {
+    if (type === "TIMER") return Math.max(1, (timerCfg.timerH || 0) * 3600 + (timerCfg.timerM || 0) * 60 + (timerCfg.timerS || 0));
+    if (type === "POMODORO") return (phase ?? pomoPhase) === "study" ? timerCfg.pomoStudySec : timerCfg.pomoBreakSec;
+    return 0;
+  }
+  function startTimer() {
+    if (timerType !== "STOPWATCH" && seconds === 0) {
+      const s = initialSecsFor(timerType);
+      setSeconds(s); setTotalSeconds(s);
+    }
+    timerStartRef.current = new Date(); setIsRunning(true);
+  }
   function pauseTimer() { setIsRunning(false); }
   function resetTimer() {
-    setIsRunning(false);
-    setSeconds(timerType === "POMODORO" || timerType === "TIMER" ? 25 * 60 : 0);
+    setIsRunning(false); setPomoPhase("study");
+    setTimerCfg(c => ({ ...c, pomoRound: 0 }));
+    const s = initialSecsFor(timerType, "study");
+    setSeconds(s); setTotalSeconds(s);
     timerStartRef.current = null;
   }
-  function finishTimer() {
+  function recordSession(durationMinutes: number) {
     if (!currentUser) return;
-    const started = timerStartRef.current ?? new Date(Date.now() - seconds * 1000);
-    const durationMinutes = (timerType === "POMODORO" || timerType === "TIMER") ? 25 : Math.max(1, Math.round(seconds / 60));
+    const started = timerStartRef.current ?? new Date(Date.now() - durationMinutes * 60000);
     const session: StudySession = {
       sessionId: createId("session"), userId: currentUser.userId, subject: timerSubject,
       timerType, startTime: started.toISOString(), endTime: new Date().toISOString(), durationMinutes,
     };
     setState(prev => ({ ...prev, sessions: [session, ...prev.sessions] }));
     void persistStore({ operation: "addSession", userId: currentUser.userId, session });
+  }
+  function finishTimer() {
+    const dur = timerType === "STOPWATCH"
+      ? Math.max(1, Math.round(seconds / 60))
+      : Math.max(1, Math.round((totalSeconds - seconds) / 60));
+    recordSession(dur);
     resetTimer();
   }
+  function recordLap() {
+    const dur = Math.max(1, Math.round(seconds / 60));
+    recordSession(dur);
+  }
   function switchTimerType(nextType: TimerType) {
-    setTimerType(nextType);
-    setIsRunning(false);
-    setSeconds(nextType === "POMODORO" || nextType === "TIMER" ? 25 * 60 : 0);
+    setTimerType(nextType); setIsRunning(false); setPomoPhase("study");
+    setTimerCfg(c => ({ ...c, pomoRound: 0 }));
+    const s = nextType === "STOPWATCH" ? 0 : initialSecsFor(nextType, "study");
+    setSeconds(s); setTotalSeconds(s);
   }
 
   /* ---- Login screen ---- */
@@ -2281,12 +2545,16 @@ export default function Home() {
 
         {activeTab === "timer" && (
           <TimerView
-            timerType={timerType} seconds={seconds} isRunning={isRunning}
-            subject={timerSubject} sessions={userSessions}
+            timerType={timerType} seconds={seconds} totalSeconds={totalSeconds} isRunning={isRunning}
+            subject={timerSubject} sessions={userSessions} pomoPhase={pomoPhase}
+            timerCfg={timerCfg} setTimerCfg={setTimerCfg}
             onTypeChange={switchTimerType} onSubjectChange={setTimerSubject}
             onStart={startTimer} onPause={pauseTimer} onFinish={finishTimer} onReset={resetTimer}
+            onRecordLap={recordLap} onDeleteSession={() => {}}
           />
         )}
+
+        {activeTab === "timetable" && <TimetableView />}
 
         {activeTab === "stats" && <StatsView sessions={userSessions} />}
 
