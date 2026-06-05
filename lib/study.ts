@@ -102,7 +102,8 @@ export function calculateCharacter(userId: string, sessions: StudySession[]): Ch
   return {
     characterId: `character_${userId}`,
     userId,
-    name: rank.name,
+    name: "루미",
+    rankName: rank.name,
     level,
     experiencePoint,
     growthStage: rank.name,
