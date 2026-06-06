@@ -1,4 +1,4 @@
-import { AppState, LearningMaterial, Quiz, StudyNote, StudySession, Summary, User } from "@/lib/types";
+import { AppState, LearningMaterial, Quiz, StudyNote, StudySession, Summary, User, UserPreferences } from "@/lib/types";
 import { getAppDb } from "@/lib/mongodb";
 
 export const collectionNames = {
@@ -7,8 +7,11 @@ export const collectionNames = {
   summaries: "summaries",
   notes: "notes",
   quizzes: "quizzes",
-  sessions: "studySessions"
+  sessions: "studySessions",
+  preferences: "preferences"
 } as const;
+
+type PreferencesDocument = UserPreferences & { userId: string };
 
 const globalForIndexes = globalThis as typeof globalThis & {
   _mongoIndexesPromise?: Promise<void>;
@@ -39,8 +42,25 @@ async function createIndexes() {
     db.collection<Quiz>(collectionNames.quizzes).createIndex({ userId: 1, noteId: 1, createdAt: -1 }),
     db.collection<Quiz>(collectionNames.quizzes).createIndex({ quizId: 1 }, { unique: true }),
     db.collection<StudySession>(collectionNames.sessions).createIndex({ userId: 1, endTime: -1 }),
-    db.collection<StudySession>(collectionNames.sessions).createIndex({ sessionId: 1 }, { unique: true })
+    db.collection<StudySession>(collectionNames.sessions).createIndex({ sessionId: 1 }, { unique: true }),
+    db.collection<PreferencesDocument>(collectionNames.preferences).createIndex({ userId: 1 }, { unique: true })
   ]);
+}
+
+export async function loadPreferences(userId: string): Promise<UserPreferences | null> {
+  const db = await getAppDb();
+  const doc = await db.collection<PreferencesDocument>(collectionNames.preferences).findOne({ userId });
+  if (!doc) return null;
+  const { userId: _userId, ...prefs } = stripMongoId(doc);
+  void _userId;
+  return prefs;
+}
+
+export async function savePreferences(userId: string, preferences: UserPreferences) {
+  const db = await getAppDb();
+  await db
+    .collection<PreferencesDocument>(collectionNames.preferences)
+    .updateOne({ userId }, { $set: { ...preferences, userId } }, { upsert: true });
 }
 
 export async function loadUserState(userId: string): Promise<Omit<AppState, "user">> {
