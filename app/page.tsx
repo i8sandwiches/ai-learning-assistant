@@ -141,6 +141,9 @@ const initialState: AppState = {
 
 const GUEST_USER_STORAGE_KEY = "studyapp.guestUser";
 
+/** Build a per-user localStorage key so each account keeps independent data. */
+const userKey = (base: string, userId: string) => `${base}.${userId}`;
+
 /* ============================================================
    CategoryManager
    ============================================================ */
@@ -535,15 +538,16 @@ function CalDayCell({ day, isToday, isSel, hasSession, scheds, onClick }: {
 /* ============================================================
    CalendarWidget
    ============================================================ */
-function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
+function CalendarWidget({ sessions, userId }: { sessions: StudySession[]; userId: string }) {
   const [cal, setCal] = useState(() => new Date());
   const [selDay, setSelDay] = useState<string | null>(null);
+  const schedKey = userKey("hak.scheds", userId);
   const [schedules, setScheds] = useState<Record<string, Sched[]>>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.scheds") || "{}"); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(schedKey) || "{}"); } catch { return {}; }
   });
   const [newText, setNewText] = useState("");
   const [newColor, setNewColor] = useState(SCHED_COLORS[4]);
-  useEffect(() => { try { localStorage.setItem("hak.scheds", JSON.stringify(schedules)); } catch {} }, [schedules]);
+  useEffect(() => { try { localStorage.setItem(schedKey, JSON.stringify(schedules)); } catch {} }, [schedKey, schedules]);
 
   const year = cal.getFullYear(), month = cal.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -744,12 +748,13 @@ function ActivityHeatmap({ sessions }: { sessions: StudySession[] }) {
    Overview
    ============================================================ */
 function Overview({
-  character, sessions, anki, onGoAnki
+  character, sessions, anki, onGoAnki, userId
 }: {
   character: ReturnType<typeof calculateCharacter>;
   sessions: StudySession[];
   anki: AnkiState;
   onGoAnki: () => void;
+  userId: string;
 }) {
   const total = sessions.reduce((a, s) => a + s.durationMinutes, 0);
   const todayKey2 = new Date().toISOString().slice(0, 10);
@@ -768,7 +773,7 @@ function Overview({
   return (
     <div className="overview-grid">
       <div className="overview-main">
-        <CalendarWidget sessions={sessions} />
+        <CalendarWidget sessions={sessions} userId={userId} />
       </div>
       <aside className="rail">
         <CharacterCard character={character} />
@@ -1064,7 +1069,7 @@ function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, t
 function TimerView({
   timerType, seconds, totalSeconds, isRunning, subject, sessions, pomoPhase,
   timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onDeleteSession,
-  categories, onManageCategories,
+  categories, onManageCategories, userId,
 }: {
   timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean;
   subject: string; sessions: StudySession[]; pomoPhase: string;
@@ -1072,18 +1077,20 @@ function TimerView({
   onTypeChange: (t: TimerType) => void; onSubjectChange: (s: string) => void;
   onStart: () => void; onPause: () => void; onFinish: () => void; onReset: () => void;
   onRecordLap: () => void; onDeleteSession: (ids: string[]) => void;
-  categories: string[]; onManageCategories: () => void;
+  categories: string[]; onManageCategories: () => void; userId: string;
 }) {
+  const presetsKey = userKey("hak.presets", userId);
+  const timerFavsKey = userKey("hak.timerFavs", userId);
   const [presets, setPresets] = useState<{ id: string; name: string; study: number; brk: number; repeat: number }[]>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.presets") || "null") || [{ id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 }, { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 }]; }
+    try { return JSON.parse(localStorage.getItem(presetsKey) || "null") || [{ id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 }, { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 }]; }
     catch { return []; }
   });
   const [timerFavs, setTimerFavs] = useState<{ id: string; name: string; h: number; m: number; s: number }[]>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.timerFavs") || "null") || [{ id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 }, { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 }]; }
+    try { return JSON.parse(localStorage.getItem(timerFavsKey) || "null") || [{ id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 }, { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 }]; }
     catch { return []; }
   });
-  useEffect(() => { try { localStorage.setItem("hak.presets", JSON.stringify(presets)); } catch {} }, [presets]);
-  useEffect(() => { try { localStorage.setItem("hak.timerFavs", JSON.stringify(timerFavs)); } catch {} }, [timerFavs]);
+  useEffect(() => { try { localStorage.setItem(presetsKey, JSON.stringify(presets)); } catch {} }, [presetsKey, presets]);
+  useEffect(() => { try { localStorage.setItem(timerFavsKey, JSON.stringify(timerFavs)); } catch {} }, [timerFavsKey, timerFavs]);
 
   const secToHMS = (t: number) => ({ h: Math.floor(t / 3600), m: Math.floor(t % 3600 / 60), s: t % 60 });
   const pomoStudyHMS = secToHMS(timerCfg.pomoStudySec || 0);
@@ -1333,14 +1340,15 @@ function StatsView({ sessions, categories }: { sessions: StudySession[]; categor
 /* ============================================================
    TimetableView
    ============================================================ */
-function TimetableView() {
+function TimetableView({ userId }: { userId: string }) {
   const DAYS = ["월","화","수","목","금","토","일"];
   const HOURS = Array.from({ length: 17 }, (_, i) => i + 7);
   const COLORS = ["#e0533a","#e8902f","#d9b008","#3fa45b","#3b78d9","#9a59c2"];
+  const storageKey = userKey("hak.timetable", userId);
   const [blocks, setBlocks] = useState<Record<string, { label: string; color: string }>>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.timetable") || "{}"); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch { return {}; }
   });
-  useEffect(() => { try { localStorage.setItem("hak.timetable", JSON.stringify(blocks)); } catch {} }, [blocks]);
+  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(blocks)); } catch {} }, [storageKey, blocks]);
   const [editing, setEditing] = useState<{ d: number; h: number; k: string; isNew: boolean } | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [editColor, setEditColor] = useState(COLORS[3]);
@@ -2127,12 +2135,11 @@ export default function Home() {
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [uploadStatus, setUploadStatus] = useState("학습 자료를 업로드하면 AI 요약을 바로 생성합니다.");
   const [isSummarizing, setIsSummarizing] = useState(false);
-  // Categories — shared across timer, notes, materials, anki
-  const [categories, setCategories] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.categories") || "null") || DEFAULT_CATEGORIES; } catch { return DEFAULT_CATEGORIES; }
-  });
+  // Categories — shared across timer, notes, materials, anki. Loaded per-user (see effects below).
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
+  const [catLoaded, setCatLoaded] = useState(false);
+  const [catUserId, setCatUserId] = useState<string | null>(null);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
-  useEffect(() => { try { localStorage.setItem("hak.categories", JSON.stringify(categories)); } catch {} }, [categories]);
 
   function addCategory(name: string): boolean {
     const n = name.trim();
@@ -2207,6 +2214,27 @@ export default function Home() {
     if (!ankiLoaded || !currentUser || ankiUserId !== currentUser.userId) return;
     saveAnkiToStorage(anki, currentUser.userId);
   }, [anki, ankiLoaded, ankiUserId, currentUser?.userId]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setCategories(DEFAULT_CATEGORIES);
+      setCatUserId(null);
+      setCatLoaded(false);
+      return;
+    }
+    setCatLoaded(false);
+    try {
+      const raw = localStorage.getItem(userKey("hak.categories", currentUser.userId));
+      setCategories(JSON.parse(raw || "null") || DEFAULT_CATEGORIES);
+    } catch { setCategories(DEFAULT_CATEGORIES); }
+    setCatUserId(currentUser.userId);
+    setCatLoaded(true);
+  }, [currentUser?.userId]);
+
+  useEffect(() => {
+    if (!catLoaded || !currentUser || catUserId !== currentUser.userId) return;
+    try { localStorage.setItem(userKey("hak.categories", currentUser.userId), JSON.stringify(categories)); } catch {}
+  }, [categories, catLoaded, catUserId, currentUser?.userId]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -2681,10 +2709,12 @@ export default function Home() {
               <ActivityHeatmap sessions={userSessions} />
             </header>
             <Overview
+              key={currentUser.userId}
               character={character}
               sessions={userSessions}
               anki={anki}
               onGoAnki={() => { setActiveTab("anki"); startReview(ankiDeckId); }}
+              userId={currentUser.userId}
             />
           </>
         ) : (
@@ -2720,6 +2750,7 @@ export default function Home() {
 
         {activeTab === "timer" && (
           <TimerView
+            key={currentUser.userId} userId={currentUser.userId}
             timerType={timerType} seconds={seconds} totalSeconds={totalSeconds} isRunning={isRunning}
             subject={timerSubject} sessions={userSessions} pomoPhase={pomoPhase}
             timerCfg={timerCfg} setTimerCfg={setTimerCfg}
@@ -2730,7 +2761,7 @@ export default function Home() {
           />
         )}
 
-        {activeTab === "timetable" && <TimetableView />}
+        {activeTab === "timetable" && <TimetableView key={currentUser.userId} userId={currentUser.userId} />}
 
         {activeTab === "stats" && <StatsView sessions={userSessions} categories={categories} />}
 
