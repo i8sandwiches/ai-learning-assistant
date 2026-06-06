@@ -43,7 +43,11 @@ import {
   StudySession,
   Summary,
   TimerType,
+  TimerFav,
+  TimerPreset,
+  TimetableBlock,
   User,
+  UserPreferences,
 } from "@/lib/types";
 import {
   addBasicNote,
@@ -100,6 +104,21 @@ const NOTIFICATIONS = [
 ];
 
 const DEFAULT_CATEGORIES = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
+const DEFAULT_PRESETS: TimerPreset[] = [
+  { id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 },
+  { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 },
+];
+const DEFAULT_TIMER_FAVS: TimerFav[] = [
+  { id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 },
+  { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 },
+];
+const makeDefaultPreferences = (): UserPreferences => ({
+  timetable: {},
+  scheds: {},
+  categories: DEFAULT_CATEGORIES,
+  presets: DEFAULT_PRESETS,
+  timerFavs: DEFAULT_TIMER_FAVS,
+});
 
 const NAV_ITEMS = [
   { id: "overview",   icon: <BarChart3 size={18} />,     label: "대시보드" },
@@ -140,9 +159,6 @@ const initialState: AppState = {
 };
 
 const GUEST_USER_STORAGE_KEY = "studyapp.guestUser";
-
-/** Build a per-user localStorage key so each account keeps independent data. */
-const userKey = (base: string, userId: string) => `${base}.${userId}`;
 
 /* ============================================================
    CategoryManager
@@ -538,16 +554,15 @@ function CalDayCell({ day, isToday, isSel, hasSession, scheds, onClick }: {
 /* ============================================================
    CalendarWidget
    ============================================================ */
-function CalendarWidget({ sessions, userId }: { sessions: StudySession[]; userId: string }) {
+function CalendarWidget({ sessions, schedules, setScheds }: {
+  sessions: StudySession[];
+  schedules: Record<string, Sched[]>;
+  setScheds: React.Dispatch<React.SetStateAction<Record<string, Sched[]>>>;
+}) {
   const [cal, setCal] = useState(() => new Date());
   const [selDay, setSelDay] = useState<string | null>(null);
-  const schedKey = userKey("hak.scheds", userId);
-  const [schedules, setScheds] = useState<Record<string, Sched[]>>(() => {
-    try { return JSON.parse(localStorage.getItem(schedKey) || "{}"); } catch { return {}; }
-  });
   const [newText, setNewText] = useState("");
   const [newColor, setNewColor] = useState(SCHED_COLORS[4]);
-  useEffect(() => { try { localStorage.setItem(schedKey, JSON.stringify(schedules)); } catch {} }, [schedKey, schedules]);
 
   const year = cal.getFullYear(), month = cal.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -748,13 +763,14 @@ function ActivityHeatmap({ sessions }: { sessions: StudySession[] }) {
    Overview
    ============================================================ */
 function Overview({
-  character, sessions, anki, onGoAnki, userId
+  character, sessions, anki, onGoAnki, schedules, setScheds
 }: {
   character: ReturnType<typeof calculateCharacter>;
   sessions: StudySession[];
   anki: AnkiState;
   onGoAnki: () => void;
-  userId: string;
+  schedules: Record<string, Sched[]>;
+  setScheds: React.Dispatch<React.SetStateAction<Record<string, Sched[]>>>;
 }) {
   const total = sessions.reduce((a, s) => a + s.durationMinutes, 0);
   const todayKey2 = new Date().toISOString().slice(0, 10);
@@ -773,7 +789,7 @@ function Overview({
   return (
     <div className="overview-grid">
       <div className="overview-main">
-        <CalendarWidget sessions={sessions} userId={userId} />
+        <CalendarWidget sessions={sessions} schedules={schedules} setScheds={setScheds} />
       </div>
       <aside className="rail">
         <CharacterCard character={character} />
@@ -1069,7 +1085,7 @@ function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, t
 function TimerView({
   timerType, seconds, totalSeconds, isRunning, subject, sessions, pomoPhase,
   timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onDeleteSession,
-  categories, onManageCategories, userId,
+  categories, onManageCategories, presets, setPresets, timerFavs, setTimerFavs,
 }: {
   timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean;
   subject: string; sessions: StudySession[]; pomoPhase: string;
@@ -1077,20 +1093,10 @@ function TimerView({
   onTypeChange: (t: TimerType) => void; onSubjectChange: (s: string) => void;
   onStart: () => void; onPause: () => void; onFinish: () => void; onReset: () => void;
   onRecordLap: () => void; onDeleteSession: (ids: string[]) => void;
-  categories: string[]; onManageCategories: () => void; userId: string;
+  categories: string[]; onManageCategories: () => void;
+  presets: TimerPreset[]; setPresets: React.Dispatch<React.SetStateAction<TimerPreset[]>>;
+  timerFavs: TimerFav[]; setTimerFavs: React.Dispatch<React.SetStateAction<TimerFav[]>>;
 }) {
-  const presetsKey = userKey("hak.presets", userId);
-  const timerFavsKey = userKey("hak.timerFavs", userId);
-  const [presets, setPresets] = useState<{ id: string; name: string; study: number; brk: number; repeat: number }[]>(() => {
-    try { return JSON.parse(localStorage.getItem(presetsKey) || "null") || [{ id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 }, { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 }]; }
-    catch { return []; }
-  });
-  const [timerFavs, setTimerFavs] = useState<{ id: string; name: string; h: number; m: number; s: number }[]>(() => {
-    try { return JSON.parse(localStorage.getItem(timerFavsKey) || "null") || [{ id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 }, { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 }]; }
-    catch { return []; }
-  });
-  useEffect(() => { try { localStorage.setItem(presetsKey, JSON.stringify(presets)); } catch {} }, [presetsKey, presets]);
-  useEffect(() => { try { localStorage.setItem(timerFavsKey, JSON.stringify(timerFavs)); } catch {} }, [timerFavsKey, timerFavs]);
 
   const secToHMS = (t: number) => ({ h: Math.floor(t / 3600), m: Math.floor(t % 3600 / 60), s: t % 60 });
   const pomoStudyHMS = secToHMS(timerCfg.pomoStudySec || 0);
@@ -1340,15 +1346,13 @@ function StatsView({ sessions, categories }: { sessions: StudySession[]; categor
 /* ============================================================
    TimetableView
    ============================================================ */
-function TimetableView({ userId }: { userId: string }) {
+function TimetableView({ blocks, setBlocks }: {
+  blocks: Record<string, TimetableBlock>;
+  setBlocks: React.Dispatch<React.SetStateAction<Record<string, TimetableBlock>>>;
+}) {
   const DAYS = ["월","화","수","목","금","토","일"];
   const HOURS = Array.from({ length: 17 }, (_, i) => i + 7);
   const COLORS = ["#e0533a","#e8902f","#d9b008","#3fa45b","#3b78d9","#9a59c2"];
-  const storageKey = userKey("hak.timetable", userId);
-  const [blocks, setBlocks] = useState<Record<string, { label: string; color: string }>>(() => {
-    try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch { return {}; }
-  });
-  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(blocks)); } catch {} }, [storageKey, blocks]);
   const [editing, setEditing] = useState<{ d: number; h: number; k: string; isNew: boolean } | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [editColor, setEditColor] = useState(COLORS[3]);
@@ -2135,10 +2139,14 @@ export default function Home() {
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [uploadStatus, setUploadStatus] = useState("학습 자료를 업로드하면 AI 요약을 바로 생성합니다.");
   const [isSummarizing, setIsSummarizing] = useState(false);
-  // Categories — shared across timer, notes, materials, anki. Loaded per-user (see effects below).
+  // User preferences (timetable, calendar, categories, timer presets) — synced per-user via DB.
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
-  const [catLoaded, setCatLoaded] = useState(false);
-  const [catUserId, setCatUserId] = useState<string | null>(null);
+  const [timetable, setTimetable] = useState<Record<string, TimetableBlock>>({});
+  const [scheds, setScheds] = useState<Record<string, Sched[]>>({});
+  const [presets, setPresets] = useState<TimerPreset[]>(DEFAULT_PRESETS);
+  const [timerFavs, setTimerFavs] = useState<TimerFav[]>(DEFAULT_TIMER_FAVS);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [prefsUserId, setPrefsUserId] = useState<string | null>(null);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
 
   function addCategory(name: string): boolean {
@@ -2215,26 +2223,19 @@ export default function Home() {
     saveAnkiToStorage(anki, currentUser.userId);
   }, [anki, ankiLoaded, ankiUserId, currentUser?.userId]);
 
+  // Persist preferences (timetable, calendar, categories, timer presets) to the DB so
+  // they sync across devices. Debounced; only after the current user's prefs have loaded.
   useEffect(() => {
-    if (!currentUser) {
-      setCategories(DEFAULT_CATEGORIES);
-      setCatUserId(null);
-      setCatLoaded(false);
-      return;
-    }
-    setCatLoaded(false);
-    try {
-      const raw = localStorage.getItem(userKey("hak.categories", currentUser.userId));
-      setCategories(JSON.parse(raw || "null") || DEFAULT_CATEGORIES);
-    } catch { setCategories(DEFAULT_CATEGORIES); }
-    setCatUserId(currentUser.userId);
-    setCatLoaded(true);
-  }, [currentUser?.userId]);
-
-  useEffect(() => {
-    if (!catLoaded || !currentUser || catUserId !== currentUser.userId) return;
-    try { localStorage.setItem(userKey("hak.categories", currentUser.userId), JSON.stringify(categories)); } catch {}
-  }, [categories, catLoaded, catUserId, currentUser?.userId]);
+    if (!prefsLoaded || !currentUser || prefsUserId !== currentUser.userId) return;
+    const handle = window.setTimeout(() => {
+      void persistStore({
+        operation: "savePreferences",
+        userId: currentUser.userId,
+        preferences: { timetable, scheds, categories, presets, timerFavs },
+      });
+    }, 600);
+    return () => window.clearTimeout(handle);
+  }, [timetable, scheds, categories, presets, timerFavs, prefsLoaded, prefsUserId, currentUser?.userId]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -2325,18 +2326,34 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      // Reset preferences to defaults on logout so the next account starts clean.
+      setTimetable({}); setScheds({}); setCategories(DEFAULT_CATEGORIES);
+      setPresets(DEFAULT_PRESETS); setTimerFavs(DEFAULT_TIMER_FAVS);
+      setPrefsLoaded(false); setPrefsUserId(null);
+      return;
+    }
     let cancelled = false;
+    setPrefsLoaded(false);
     async function loadRemoteState() {
+      const userId = currentUser!.userId;
       try {
-        const response = await fetch(`/api/store?userId=${encodeURIComponent(currentUser!.userId)}`);
+        const response = await fetch(`/api/store?userId=${encodeURIComponent(userId)}`);
         if (!response.ok) throw new Error("Remote state request failed");
-        const data = (await response.json()) as Omit<AppState, "user">;
-        if (!cancelled) {
-          setState(prev => prev.user?.userId === currentUser!.userId ? { ...prev, ...data } : prev);
-        }
+        const data = (await response.json()) as Omit<AppState, "user"> & { preferences: UserPreferences | null };
+        if (cancelled) return;
+        const { preferences, ...appData } = data;
+        setState(prev => prev.user?.userId === userId ? { ...prev, ...appData } : prev);
+        const defaults = makeDefaultPreferences();
+        setTimetable(preferences?.timetable ?? defaults.timetable);
+        setScheds(preferences?.scheds ?? defaults.scheds);
+        setCategories(preferences?.categories ?? defaults.categories);
+        setPresets(preferences?.presets ?? defaults.presets);
+        setTimerFavs(preferences?.timerFavs ?? defaults.timerFavs);
+        setPrefsUserId(userId);
+        setPrefsLoaded(true);
       } catch {
-        // connection failed — swallow silently
+        // connection failed — keep current in-memory prefs, but don't persist stale data.
       }
     }
     void loadRemoteState();
@@ -2709,12 +2726,12 @@ export default function Home() {
               <ActivityHeatmap sessions={userSessions} />
             </header>
             <Overview
-              key={currentUser.userId}
               character={character}
               sessions={userSessions}
               anki={anki}
               onGoAnki={() => { setActiveTab("anki"); startReview(ankiDeckId); }}
-              userId={currentUser.userId}
+              schedules={scheds}
+              setScheds={setScheds}
             />
           </>
         ) : (
@@ -2750,7 +2767,6 @@ export default function Home() {
 
         {activeTab === "timer" && (
           <TimerView
-            key={currentUser.userId} userId={currentUser.userId}
             timerType={timerType} seconds={seconds} totalSeconds={totalSeconds} isRunning={isRunning}
             subject={timerSubject} sessions={userSessions} pomoPhase={pomoPhase}
             timerCfg={timerCfg} setTimerCfg={setTimerCfg}
@@ -2758,10 +2774,11 @@ export default function Home() {
             onStart={startTimer} onPause={pauseTimer} onFinish={finishTimer} onReset={resetTimer}
             onRecordLap={recordLap} onDeleteSession={() => {}}
             categories={categories} onManageCategories={() => setCatManagerOpen(true)}
+            presets={presets} setPresets={setPresets} timerFavs={timerFavs} setTimerFavs={setTimerFavs}
           />
         )}
 
-        {activeTab === "timetable" && <TimetableView key={currentUser.userId} userId={currentUser.userId} />}
+        {activeTab === "timetable" && <TimetableView blocks={timetable} setBlocks={setTimetable} />}
 
         {activeTab === "stats" && <StatsView sessions={userSessions} categories={categories} />}
 
