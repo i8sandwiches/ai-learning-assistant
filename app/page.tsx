@@ -1281,17 +1281,19 @@ interface TimerCfg {
   pomoRepeat: number; pomoRound: number;
 }
 
-function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, totalSeconds, onSet }: {
+function PomoClock({ kind, label, hms, totalSec, active, running, started, liveSeconds, totalSeconds, onSet }: {
   kind: string; label: string; hms: { m: number; s: number }; totalSec: number;
-  active: boolean; running: boolean; liveSeconds: number; totalSeconds: number;
+  active: boolean; running: boolean; started: boolean; liveSeconds: number; totalSeconds: number;
   onSet: (part: string, val: string, max: number) => void;
 }) {
   const R = 82, C = 2 * Math.PI * R;
-  const showLive = running && active;
+  // Show the live remaining time for the active phase while running OR paused
+  // mid-session, so pausing doesn't revert the face to the configured value.
+  const showLive = active && (running || started);
   const faceSec = showLive ? liveSeconds : totalSec;
   const pct = showLive && totalSeconds > 0 ? Math.min(1, 1 - liveSeconds / totalSeconds) : 0;
   const dash = C * (1 - pct);
-  const editable = !running;
+  const editable = !running && !started;
   const stateCls = running ? (active ? "is-active" : "is-idle") : "";
   return (
     <div className={`pomo-clock ${kind} ${stateCls}`}>
@@ -1319,11 +1321,11 @@ function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, t
 }
 
 function TimerView({
-  timerType, seconds, totalSeconds, isRunning, subject, sessions, pomoPhase,
+  timerType, seconds, totalSeconds, isRunning, started, subject, sessions, pomoPhase,
   timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onDeleteSession,
   categories, onManageCategories, presets, setPresets, timerFavs, setTimerFavs,
 }: {
-  timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean;
+  timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean; started: boolean;
   subject: string; sessions: StudySession[]; pomoPhase: string;
   timerCfg: TimerCfg; setTimerCfg: React.Dispatch<React.SetStateAction<TimerCfg>>;
   onTypeChange: (t: TimerType) => void; onSubjectChange: (s: string) => void;
@@ -1373,7 +1375,7 @@ function TimerView({
   const R = 110, C = 2 * Math.PI * R;
   const pct = totalSeconds > 0 ? Math.min(1, 1 - seconds / totalSeconds) : 0;
   const dashOffset = C * (1 - pct);
-  const editableTimer = timerType === "TIMER" && !isRunning;
+  const editableTimer = timerType === "TIMER" && !isRunning && !started;
 
   return (
     <div className="timer-layout view-enter">
@@ -1395,11 +1397,11 @@ function TimerView({
               </div>
               <div className="pomo-clocks-row">
                 <PomoClock kind="study" label="학습시간" hms={pomoStudyHMS} totalSec={timerCfg.pomoStudySec}
-                  active={pomoPhase === "study"} running={isRunning} liveSeconds={seconds} totalSeconds={totalSeconds}
+                  active={pomoPhase === "study"} running={isRunning} started={started} liveSeconds={seconds} totalSeconds={totalSeconds}
                   onSet={(p, v, mx) => setPomoHMS("pomoStudySec", p, v, mx)} />
                 <div className="pomo-cycle"><div className="pomo-divider" /></div>
                 <PomoClock kind="break" label="휴게시간" hms={pomoBreakHMS} totalSec={timerCfg.pomoBreakSec}
-                  active={pomoPhase === "break"} running={isRunning} liveSeconds={seconds} totalSeconds={totalSeconds}
+                  active={pomoPhase === "break"} running={isRunning} started={started} liveSeconds={seconds} totalSeconds={totalSeconds}
                   onSet={(p, v, mx) => setPomoHMS("pomoBreakSec", p, v, mx)} />
               </div>
             </div>
@@ -3016,6 +3018,7 @@ export default function Home() {
         {activeTab === "timer" && (
           <TimerView
             timerType={timerType} seconds={seconds} totalSeconds={totalSeconds} isRunning={isRunning}
+            started={timerStartRef.current !== null}
             subject={timerSubject} sessions={userSessions} pomoPhase={pomoPhase}
             timerCfg={timerCfg} setTimerCfg={setTimerCfg}
             onTypeChange={switchTimerType} onSubjectChange={setTimerSubject}
