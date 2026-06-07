@@ -272,21 +272,24 @@ function CategoryField({ categories, value, onChange, onManage, label = "과목"
 /* ============================================================
    SessionClock
    ============================================================ */
-function SessionClock({ sessions }: { sessions: StudySession[] }) {
+function SessionClock({ sessions, liveSeconds = 0 }: { sessions: StudySession[]; liveSeconds?: number }) {
   // Derive study time & value from the user's recorded sessions (DB-backed,
-  // per-account, synced across devices) rather than a device-local wall clock.
+  // per-account, synced across devices). `liveSeconds` adds the in-progress
+  // session's elapsed time so the clock ticks (incl. seconds) while studying.
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayMin = sessions
     .filter(s => s.endTime.slice(0, 10) === todayStr)
     .reduce((a, s) => a + s.durationMinutes, 0);
   const totalMin = sessions.reduce((a, s) => a + s.durationMinutes, 0);
 
-  const hh = Math.floor(todayMin / 60);
-  const mm = todayMin % 60;
-  const timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  const todaySec = todayMin * 60 + liveSeconds;
+  const hh = Math.floor(todaySec / 3600);
+  const mm = Math.floor((todaySec % 3600) / 60);
+  const ss = todaySec % 60;
+  const timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 
-  const todayValue = Math.round((todayMin / 60) * MIN_WAGE);
-  const totalValue = Math.round((totalMin / 60) * MIN_WAGE);
+  const todayValue = Math.round((todaySec / 3600) * MIN_WAGE);
+  const totalValue = Math.round(((totalMin * 60 + liveSeconds) / 3600) * MIN_WAGE);
   return (
     <div className="session-clock">
       <div className="sc-timer">{timeStr}</div>
@@ -2850,6 +2853,11 @@ export default function Home() {
     setSeconds(s); setTotalSeconds(s);
   }
 
+  // Elapsed seconds of the in-progress session, so the header clock ticks live.
+  const liveStudySeconds = isRunning
+    ? (timerType === "STOPWATCH" ? seconds : Math.max(0, totalSeconds - seconds))
+    : 0;
+
   /* ---- Login screen ---- */
   if (!currentUser) {
     return (
@@ -2902,7 +2910,7 @@ export default function Home() {
               <div className="title-wrap">
                 <p className="eyebrow">Personal learning dashboard</p>
                 <h1 className="page-title">학습 대시보드</h1>
-                <SessionClock sessions={userSessions} />
+                <SessionClock sessions={userSessions} liveSeconds={liveStudySeconds} />
               </div>
               <ActivityHeatmap sessions={userSessions} />
             </header>
@@ -2921,7 +2929,7 @@ export default function Home() {
               <p className="eyebrow">Personal learning cockpit</p>
               <h2>{TAB_TITLES[activeTab]}</h2>
             </div>
-            <SessionClock sessions={userSessions} />
+            <SessionClock sessions={userSessions} liveSeconds={liveStudySeconds} />
           </header>
         )}
 
