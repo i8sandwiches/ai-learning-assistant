@@ -121,6 +121,22 @@ export interface UserPreferences {
   timerFavs: TimerFav[];
 }
 
+// ---- Material Chat ----
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+export interface MaterialChatSession {
+  sessionId: string;
+  userId: string;
+  materialId: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ---- Anki ----
 export type CardState = "new" | "learn" | "review" | "suspended";
 export type AnkiGrade = 0 | 1 | 2 | 3;

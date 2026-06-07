@@ -105,3 +105,89 @@ export async function generateStudyKit(title: string, content: string) {
 
   return { summary, quizzes };
 }
+
+// ---- PDF 텍스트 추출 (Gemini 인라인 base64) ----
+export async function extractTextFromPdfBase64(base64Data: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              inline_data: {
+                mime_type: "application/pdf",
+                data: base64Data
+              }
+            },
+            {
+              text: "이 PDF의 모든 텍스트 내용을 그대로 추출해라. 형식 변경 없이 원문 텍스트만 반환하라."
+            }
+          ]
+        }
+      ],
+      generationConfig: { temperature: 0, maxOutputTokens: 8192 }
+    })
+  });
+
+  if (!response.ok) throw new Error(`Gemini PDF extraction failed: ${response.status}`);
+
+  const data = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("\n").trim() ?? "";
+}
+
+// ---- 자료 기반 멀티턴 Q&A ----
+export interface GeminiChatTurn {
+  role: "user" | "model";
+  parts: Array<{ text: string }>;
+}
+
+export async function answerFromMaterial(
+  materialContent: string,
+  question: string,
+  history: GeminiChatTurn[]
+): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const systemInstruction = [
+    "너는 한국어 AI 학습 튜터다.",
+    "아래 [학습 자료]를 근거로만 질문에 답하라.",
+    "자료에 없는 내용은 '자료에 해당 내용이 없습니다'라고 답하라.",
+    "답변은 간결하고 정확하게 한국어로 작성하라.",
+    "",
+    "[학습 자료]",
+    materialContent.slice(0, 20000)
+  ].join("\n");
+
+  // history + 현재 질문을 contents 배열로 구성
+  const contents: GeminiChatTurn[] = [
+    ...history,
+    { role: "user", parts: [{ text: question }] }
+  ];
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents,
+      generationConfig: { temperature: 0.3, maxOutputTokens: 1024 }
+    })
+  });
+
+  if (!response.ok) throw new Error(`Gemini chat failed: ${response.status}`);
+
+  const data = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("\n").trim() ?? "답변을 생성할 수 없습니다.";
+}
