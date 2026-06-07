@@ -130,6 +130,7 @@ const NAV_ITEMS = [
   { id: "timer",      icon: <Clock size={18} />,         label: "포모도로" },
   { id: "notes",      icon: <BookOpenText size={18} />,  label: "학습 노트" },
   { id: "materials",  icon: <UploadCloud size={18} />,   label: "자료/요약" },
+  { id: "qna",        icon: <MessageSquare size={18} />, label: "AI Q&A" },
   { id: "anki",       icon: <LayersIcon size={18} />,    label: "Anki" },
   { id: "stats",      icon: <Flame size={18} />,         label: "통계" },
 ] as const;
@@ -138,13 +139,14 @@ const TAB_TITLES: Record<string, string> = {
   overview: "학습 대시보드",
   timetable: "시간표",
   materials: "자료 / 요약",
+  qna: "AI Q&A",
   notes: "학습 노트",
   anki: "Anki 스케줄러",
   timer: "포모도로",
   stats: "학습 통계",
 };
 
-type TabId = "overview" | "timetable" | "materials" | "notes" | "timer" | "stats" | "anki";
+type TabId = "overview" | "timetable" | "materials" | "qna" | "notes" | "timer" | "stats" | "anki";
 type HeatView = "year" | "month" | "week";
 type SessionUser = {
   email?: string | null;
@@ -834,7 +836,7 @@ function SessionList({ sessions }: { sessions: StudySession[] }) {
 /* ============================================================
    MaterialChatPanel
    ============================================================ */
-function MaterialChatPanel({ material, onClose }: { material: LearningMaterial; onClose: () => void }) {
+function MaterialChatPanel({ material, userId, onClose }: { material: LearningMaterial; userId: string; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -845,7 +847,7 @@ function MaterialChatPanel({ material, onClose }: { material: LearningMaterial; 
     let cancelled = false;
     async function fetchHistory() {
       try {
-        const res = await fetch(`/api/materials/${material.materialId}/chat`);
+        const res = await fetch(`/api/materials/${material.materialId}/chat?userId=${encodeURIComponent(userId)}`);
         if (!res.ok) throw new Error();
         const data = (await res.json()) as { messages: ChatMessage[] };
         if (!cancelled) setMessages(data.messages);
@@ -857,7 +859,7 @@ function MaterialChatPanel({ material, onClose }: { material: LearningMaterial; 
     }
     void fetchHistory();
     return () => { cancelled = true; };
-  }, [material.materialId]);
+  }, [material.materialId, userId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -875,7 +877,7 @@ function MaterialChatPanel({ material, onClose }: { material: LearningMaterial; 
       const res = await fetch(`/api/materials/${material.materialId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, userId }),
       });
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { answer: string };
@@ -940,6 +942,59 @@ function MaterialChatPanel({ material, onClose }: { material: LearningMaterial; 
 }
 
 /* ============================================================
+   QnAView — dedicated AI Q&A space (pick a material, then chat)
+   ============================================================ */
+function QnAView({ materials, userId }: { materials: LearningMaterial[]; userId: string }) {
+  const [selectedId, setSelectedId] = useState<string | null>(materials[0]?.materialId ?? null);
+
+  useEffect(() => {
+    if (selectedId && !materials.some(m => m.materialId === selectedId)) {
+      setSelectedId(materials[0]?.materialId ?? null);
+    }
+  }, [materials, selectedId]);
+
+  const selected = materials.find(m => m.materialId === selectedId) ?? null;
+
+  return (
+    <div className="two-column view-enter">
+      <section className="panel">
+        <div className="section-heading">
+          <h3>자료 선택</h3>
+          <span className="sum-count">{materials.length}개</span>
+        </div>
+        {materials.length === 0
+          ? <p className="empty-text">먼저 ‘자료/요약’ 탭에서 자료를 업로드하세요.</p>
+          : materials.map(m => (
+            <div
+              key={m.materialId}
+              className={`list-row mat-row ${selectedId === m.materialId ? "is-selected" : ""}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedId(m.materialId)}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(m.materialId); } }}
+            >
+              <UploadCloud size={17} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong>{m.fileName}</strong>
+                <span>{m.fileType} · {new Date(m.uploadedAt).toLocaleString("ko-KR")}</span>
+              </div>
+            </div>
+          ))
+        }
+      </section>
+
+      {selected ? (
+        <MaterialChatPanel key={selected.materialId} material={selected} userId={userId} onClose={() => setSelectedId(null)} />
+      ) : (
+        <section className="panel">
+          <p className="empty-text">{materials.length === 0 ? "업로드한 자료가 없습니다." : "자료를 선택하면 AI에게 질문할 수 있습니다."}</p>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    MaterialsView
    ============================================================ */
 function MaterialsView({
@@ -964,7 +1019,6 @@ function MaterialsView({
   const [selMats, setSelMats] = useState<string[]>([]);
   const [selSums, setSelSums] = useState<string[]>([]);
   const [pinned, setPinned] = useState<string[]>([]);
-  const [chatMaterial, setChatMaterial] = useState<LearningMaterial | null>(null);
 
   function toggleMat(id: string) { setSelMats(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
   function toggleSum(id: string) { setSelSums(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
@@ -1004,30 +1058,18 @@ function MaterialsView({
           {materials.length === 0
             ? <p className="empty-text">아직 업로드한 자료가 없습니다.</p>
             : materials.map(m => (
-              <div className={`list-row mat-row ${selMats.includes(m.materialId) ? "is-selected" : ""} ${chatMaterial?.materialId === m.materialId ? "mat-row-active" : ""}`} key={m.materialId}>
+              <div className={`list-row mat-row ${selMats.includes(m.materialId) ? "is-selected" : ""}`} key={m.materialId}>
                 <input type="checkbox" className="row-check" checked={selMats.includes(m.materialId)}
                   onChange={() => toggleMat(m.materialId)} aria-label={`${m.fileName} 선택`} />
                 <UploadCloud size={17} />
                 <div style={{ flex: 1, minWidth: 0 }}><strong>{m.fileName}</strong><span>{m.fileType} · {new Date(m.uploadedAt).toLocaleString("ko-KR")}</span></div>
-                <button
-                  className={`chip-button mat-chat-btn ${chatMaterial?.materialId === m.materialId ? "active" : ""}`}
-                  title="AI Q&A"
-                  aria-label={`${m.fileName} AI Q&A`}
-                  onClick={() => setChatMaterial(prev => prev?.materialId === m.materialId ? null : m)}
-                >
-                  <MessageSquare size={13} />
-                  Q&amp;A
-                </button>
               </div>
             ))
           }
         </div>
       </section>
 
-      {chatMaterial ? (
-        <MaterialChatPanel material={chatMaterial} onClose={() => setChatMaterial(null)} />
-      ) : (
-        <section className="panel">
+      <section className="panel">
           <div className="section-heading">
             <h3>저장된 요약</h3>
             <div className="sum-toolbar">
@@ -1078,8 +1120,7 @@ function MaterialsView({
               ) : <p className="empty-text">조회할 요약을 선택하세요.</p>}
             </article>
           </div>
-        </section>
-      )}
+      </section>
     </div>
   );
 }
@@ -2642,29 +2683,36 @@ export default function Home() {
     const validation = validateUpload(file);
     if (!validation.ok) { setUploadStatus(validation.message); event.target.value = ""; return; }
     setIsSummarizing(true);
-    setUploadStatus("파일을 읽고 AI 요약을 생성하는 중입니다.");
-    const extractedText = await readFileForSummary(file, validation.fileType);
-    const material: LearningMaterial = {
-      materialId: createId("material"), userId: currentUser.userId, fileName: file.name,
-      fileType: validation.fileType, extractedText, uploadedAt: new Date().toISOString(),
-    };
-    const content = await requestSummary(file.name, extractedText);
-    const summary: Summary = {
-      summaryId: createId("summary"), userId: currentUser.userId, materialId: material.materialId,
-      title: file.name.replace(/\.[^.]+$/, ""), content, sourceType: "material", createdAt: new Date().toISOString(),
-    };
-    setState(prev => ({ ...prev, materials: [material, ...prev.materials], summaries: [summary, ...prev.summaries] }));
-    setSelectedSummaryId(summary.summaryId);
-    setUploadStatus("요약이 생성되어 저장되었습니다.");
-    setIsSummarizing(false);
-    void persistStore({ operation: "saveMaterialSummary", userId: currentUser.userId, material, summary });
-    event.target.value = "";
-  }
+    setUploadStatus("파일을 업로드하고 텍스트를 추출하는 중입니다.");
+    try {
+      // Upload via the server so real text (incl. PDF) is extracted and stored in the DB.
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("userId", currentUser.userId);
+      const uploadRes = await fetch("/api/materials/upload", { method: "POST", body: formData });
+      if (!uploadRes.ok) {
+        const err = (await uploadRes.json().catch(() => ({}))) as { error?: string };
+        setUploadStatus(err.error || "업로드에 실패했습니다.");
+        return;
+      }
+      const { material } = (await uploadRes.json()) as { material: LearningMaterial };
 
-  async function readFileForSummary(file: File, fileType: LearningMaterial["fileType"]) {
-    if (fileType === "TXT" || fileType === "MD") return file.text();
-    if (fileType === "IMAGE") return `이미지 학습 자료: ${file.name}.`;
-    return `PDF 학습 자료: ${file.name}.`;
+      setUploadStatus("AI 요약을 생성하는 중입니다.");
+      const content = await requestSummary(material.fileName, material.extractedText);
+      const summary: Summary = {
+        summaryId: createId("summary"), userId: currentUser.userId, materialId: material.materialId,
+        title: material.fileName.replace(/\.[^.]+$/, ""), content, sourceType: "material", createdAt: new Date().toISOString(),
+      };
+      setState(prev => ({ ...prev, materials: [material, ...prev.materials], summaries: [summary, ...prev.summaries] }));
+      setSelectedSummaryId(summary.summaryId);
+      setUploadStatus("요약이 생성되어 저장되었습니다.");
+      void persistStore({ operation: "addSummary", userId: currentUser.userId, summary });
+    } catch {
+      setUploadStatus("업로드 중 오류가 발생했습니다.");
+    } finally {
+      setIsSummarizing(false);
+      event.target.value = "";
+    }
   }
 
   async function requestSummary(title: string, content: string) {
@@ -2879,6 +2927,8 @@ export default function Home() {
             categories={categories} onManageCategories={() => setCatManagerOpen(true)}
           />
         )}
+
+        {activeTab === "qna" && <QnAView materials={userMaterials} userId={currentUser.userId} />}
 
         {activeTab === "notes" && (
           <NotesView
