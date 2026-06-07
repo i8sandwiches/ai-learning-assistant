@@ -1,4 +1,4 @@
-import { AppState, LearningMaterial, Quiz, StudyNote, StudySession, Summary, User, UserPreferences } from "@/lib/types";
+import { AppState, ChatMessage, LearningMaterial, MaterialChatSession, Quiz, StudyNote, StudySession, Summary, User, UserPreferences } from "@/lib/types";
 import { getAppDb } from "@/lib/mongodb";
 
 export const collectionNames = {
@@ -8,7 +8,8 @@ export const collectionNames = {
   notes: "notes",
   quizzes: "quizzes",
   sessions: "studySessions",
-  preferences: "preferences"
+  preferences: "preferences",
+  materialChats: "materialChats"
 } as const;
 
 type PreferencesDocument = UserPreferences & { userId: string };
@@ -43,7 +44,9 @@ async function createIndexes() {
     db.collection<Quiz>(collectionNames.quizzes).createIndex({ quizId: 1 }, { unique: true }),
     db.collection<StudySession>(collectionNames.sessions).createIndex({ userId: 1, endTime: -1 }),
     db.collection<StudySession>(collectionNames.sessions).createIndex({ sessionId: 1 }, { unique: true }),
-    db.collection<PreferencesDocument>(collectionNames.preferences).createIndex({ userId: 1 }, { unique: true })
+    db.collection<PreferencesDocument>(collectionNames.preferences).createIndex({ userId: 1 }, { unique: true }),
+    db.collection<MaterialChatSession>(collectionNames.materialChats).createIndex({ userId: 1, materialId: 1 }),
+    db.collection<MaterialChatSession>(collectionNames.materialChats).createIndex({ sessionId: 1 }, { unique: true })
   ]);
 }
 
@@ -80,6 +83,47 @@ export async function loadUserState(userId: string): Promise<Omit<AppState, "use
     quizzes: quizzes.map(stripMongoId),
     sessions: sessions.map(stripMongoId)
   };
+}
+
+// ---- Material Chat ----
+export async function getOrCreateChatSession(userId: string, materialId: string): Promise<MaterialChatSession> {
+  const db = await getAppDb();
+  const existing = await db
+    .collection<MaterialChatSession>(collectionNames.materialChats)
+    .findOne({ userId, materialId });
+  if (existing) return stripMongoId(existing);
+
+  const now = new Date().toISOString();
+  const session: MaterialChatSession = {
+    sessionId: `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    userId,
+    materialId,
+    messages: [],
+    createdAt: now,
+    updatedAt: now
+  };
+  await db.collection<MaterialChatSession>(collectionNames.materialChats).updateOne({ sessionId: session.sessionId }, { $set: session }, { upsert: true });
+  return session;
+}
+
+export async function appendChatMessages(sessionId: string, messages: ChatMessage[]): Promise<void> {
+  const db = await getAppDb();
+  const now = new Date().toISOString();
+  await db
+    .collection<MaterialChatSession>(collectionNames.materialChats)
+    .updateOne({ sessionId }, { $push: { messages: { $each: messages } as never }, $set: { updatedAt: now } });
+}
+
+export async function getChatSession(sessionId: string): Promise<MaterialChatSession | null> {
+  const db = await getAppDb();
+  const doc = await db.collection<MaterialChatSession>(collectionNames.materialChats).findOne({ sessionId });
+  return doc ? stripMongoId(doc) : null;
+}
+
+export async function getChatSessionByMaterial(userId: string, materialId: string): Promise<MaterialChatSession | null> {
+  const db = await getAppDb();
+  const doc = await db.collection<MaterialChatSession>(collectionNames.materialChats).findOne({ userId, materialId });
+  return doc ? stripMongoId(doc) : null;
 }
 
 export async function upsertUser(user: User) {

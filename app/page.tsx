@@ -28,6 +28,9 @@ import {
   Trash2,
   UploadCloud,
   X,
+  MessageSquare,
+  Send,
+  ChevronLeft,
 } from "lucide-react";
 import React, { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getSession, signIn, signOut } from "next-auth/react";
@@ -37,6 +40,7 @@ import {
   AnkiState,
   AppState,
   AuthProvider,
+  ChatMessage,
   LearningMaterial,
   Quiz,
   StudyNote,
@@ -828,6 +832,114 @@ function SessionList({ sessions }: { sessions: StudySession[] }) {
 }
 
 /* ============================================================
+   MaterialChatPanel
+   ============================================================ */
+function MaterialChatPanel({ material, onClose }: { material: LearningMaterial; onClose: () => void }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchHistory() {
+      try {
+        const res = await fetch(`/api/materials/${material.materialId}/chat`);
+        if (!res.ok) throw new Error();
+        const data = (await res.json()) as { messages: ChatMessage[] };
+        if (!cancelled) setMessages(data.messages);
+      } catch {
+        // 조회 실패 시 빈 상태로 시작
+      } finally {
+        if (!cancelled) setInitializing(false);
+      }
+    }
+    void fetchHistory();
+    return () => { cancelled = true; };
+  }, [material.materialId]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  async function sendMessage() {
+    const question = input.trim();
+    if (!question || loading) return;
+    setInput("");
+    setLoading(true);
+    // 낙관적 업데이트
+    const userMsg: ChatMessage = { role: "user", content: question, createdAt: new Date().toISOString() };
+    setMessages(prev => [...prev, userMsg]);
+    try {
+      const res = await fetch(`/api/materials/${material.materialId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      if (!res.ok) throw new Error();
+      const data = (await res.json()) as { answer: string };
+      const aiMsg: ChatMessage = { role: "assistant", content: data.answer, createdAt: new Date().toISOString() };
+      setMessages(prev => [...prev, aiMsg]);
+    } catch {
+      const errMsg: ChatMessage = { role: "assistant", content: "오류가 발생했습니다. 다시 시도해 주세요.", createdAt: new Date().toISOString() };
+      setMessages(prev => [...prev, errMsg]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mat-chat-panel">
+      <div className="mat-chat-header">
+        <button className="icon-button" onClick={onClose} aria-label="채팅 닫기"><ChevronLeft size={17} /></button>
+        <div className="mat-chat-header-info">
+          <strong>{material.fileName}</strong>
+          <span>자료 AI Q&amp;A</span>
+        </div>
+      </div>
+
+      <div className="mat-chat-body">
+        {initializing ? (
+          <p className="empty-text">대화 기록을 불러오는 중...</p>
+        ) : messages.length === 0 ? (
+          <p className="empty-text">자료에 대해 궁금한 점을 질문해 보세요.</p>
+        ) : (
+          messages.map((m, i) => (
+            <div key={i} className={`chat-bubble ${m.role === "user" ? "chat-bubble-user" : "chat-bubble-ai"}`}>
+              <span className="chat-role">{m.role === "user" ? "나" : "AI"}</span>
+              <p>{m.content}</p>
+            </div>
+          ))
+        )}
+        {loading && (
+          <div className="chat-bubble chat-bubble-ai">
+            <span className="chat-role">AI</span>
+            <p className="chat-typing">답변 생성 중…</p>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="mat-chat-footer">
+        <textarea
+          className="chat-input"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
+          placeholder="질문을 입력하세요 (Enter로 전송)"
+          disabled={loading || initializing}
+          rows={2}
+        />
+        <button className="primary-button chat-send-btn" onClick={() => void sendMessage()} disabled={loading || !input.trim()}>
+          <Send size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    MaterialsView
    ============================================================ */
 function MaterialsView({
@@ -852,6 +964,7 @@ function MaterialsView({
   const [selMats, setSelMats] = useState<string[]>([]);
   const [selSums, setSelSums] = useState<string[]>([]);
   const [pinned, setPinned] = useState<string[]>([]);
+  const [chatMaterial, setChatMaterial] = useState<LearningMaterial | null>(null);
 
   function toggleMat(id: string) { setSelMats(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
   function toggleSum(id: string) { setSelSums(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
@@ -874,7 +987,7 @@ function MaterialsView({
           <UploadCloud size={36} />
           <strong>{isSummarizing ? "요약 생성 중" : "파일 선택"}</strong>
           <span>{uploadStatus}</span>
-          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md" onChange={onUpload} disabled={isSummarizing} />
+          <input type="file" accept=".pdf,.txt,.md" onChange={onUpload} disabled={isSummarizing} />
         </label>
         <div className="list-block-sep" />
         <div className="list-block">
@@ -891,69 +1004,82 @@ function MaterialsView({
           {materials.length === 0
             ? <p className="empty-text">아직 업로드한 자료가 없습니다.</p>
             : materials.map(m => (
-              <div className={`list-row mat-row ${selMats.includes(m.materialId) ? "is-selected" : ""}`} key={m.materialId}>
+              <div className={`list-row mat-row ${selMats.includes(m.materialId) ? "is-selected" : ""} ${chatMaterial?.materialId === m.materialId ? "mat-row-active" : ""}`} key={m.materialId}>
                 <input type="checkbox" className="row-check" checked={selMats.includes(m.materialId)}
                   onChange={() => toggleMat(m.materialId)} aria-label={`${m.fileName} 선택`} />
                 <UploadCloud size={17} />
-                <div><strong>{m.fileName}</strong><span>{m.fileType} · {new Date(m.uploadedAt).toLocaleString("ko-KR")}</span></div>
+                <div style={{ flex: 1, minWidth: 0 }}><strong>{m.fileName}</strong><span>{m.fileType} · {new Date(m.uploadedAt).toLocaleString("ko-KR")}</span></div>
+                <button
+                  className={`chip-button mat-chat-btn ${chatMaterial?.materialId === m.materialId ? "active" : ""}`}
+                  title="AI Q&A"
+                  aria-label={`${m.fileName} AI Q&A`}
+                  onClick={() => setChatMaterial(prev => prev?.materialId === m.materialId ? null : m)}
+                >
+                  <MessageSquare size={13} />
+                  Q&amp;A
+                </button>
               </div>
             ))
           }
         </div>
       </section>
 
-      <section className="panel">
-        <div className="section-heading">
-          <h3>저장된 요약</h3>
-          <div className="sum-toolbar">
-            {selSums.length > 0 && (
-              <>
-                <button className="chip-button" disabled={!canPin}
-                  onClick={() => { selSums.forEach(id => togglePin(id)); setSelSums([]); }}>
-                  <Pin size={13} />{selSums.every(id => pinned.includes(id)) ? "고정 해제" : `고정 ${pinned.length}/5`}
-                </button>
-                <button className="chip-button danger" onClick={() => setSelSums([])}>
-                  <Trash2 size={13} />삭제 ({selSums.length})
-                </button>
-              </>
-            )}
-            <span className="sum-count">{summaries.length}개</span>
-          </div>
-        </div>
-        <div className="split-list">
-          <div className="summary-list">
-            {summaries.length === 0
-              ? <p className="empty-text">요약이 생성되면 이곳에 저장됩니다.</p>
-              : sortedSums.map(s => (
-                <div key={s.summaryId} className={`sum-row ${selSums.includes(s.summaryId) ? "is-selected" : ""}`}>
-                  <input type="checkbox" className="row-check" checked={selSums.includes(s.summaryId)}
-                    onChange={() => toggleSum(s.summaryId)} aria-label={`${s.title} 선택`} />
-                  <button className={`summary-item ${s.summaryId === selectedSummaryId ? "active" : ""}`}
-                    onClick={() => onSelectSummary(s.summaryId)}>
-                    {pinned.includes(s.summaryId) && <span className="pin-dot"><Pin size={10} /></span>}
-                    <strong>{s.title}</strong>
-                    <span>{s.sourceType === "material" ? "자료 요약" : "노트 요약"}</span>
+      {chatMaterial ? (
+        <MaterialChatPanel material={chatMaterial} onClose={() => setChatMaterial(null)} />
+      ) : (
+        <section className="panel">
+          <div className="section-heading">
+            <h3>저장된 요약</h3>
+            <div className="sum-toolbar">
+              {selSums.length > 0 && (
+                <>
+                  <button className="chip-button" disabled={!canPin}
+                    onClick={() => { selSums.forEach(id => togglePin(id)); setSelSums([]); }}>
+                    <Pin size={13} />{selSums.every(id => pinned.includes(id)) ? "고정 해제" : `고정 ${pinned.length}/5`}
                   </button>
-                </div>
-              ))
-            }
-          </div>
-          <div className="split-divider" />
-          <article className="summary-detail">
-            {selectedSummary ? (
-              <>
-                <div className="detail-title">
-                  <div><h4>{selectedSummary.title}</h4><span>{new Date(selectedSummary.createdAt).toLocaleString("ko-KR")}</span></div>
-                  <button className="icon-button danger" aria-label="요약 삭제" onClick={() => onDeleteSummary(selectedSummary.summaryId)}>
-                    <Trash2 size={17} />
+                  <button className="chip-button danger" onClick={() => setSelSums([])}>
+                    <Trash2 size={13} />삭제 ({selSums.length})
                   </button>
-                </div>
-                <MarkdownPreview content={selectedSummary.content} />
-              </>
-            ) : <p className="empty-text">조회할 요약을 선택하세요.</p>}
-          </article>
-        </div>
-      </section>
+                </>
+              )}
+              <span className="sum-count">{summaries.length}개</span>
+            </div>
+          </div>
+          <div className="split-list">
+            <div className="summary-list">
+              {summaries.length === 0
+                ? <p className="empty-text">요약이 생성되면 이곳에 저장됩니다.</p>
+                : sortedSums.map(s => (
+                  <div key={s.summaryId} className={`sum-row ${selSums.includes(s.summaryId) ? "is-selected" : ""}`}>
+                    <input type="checkbox" className="row-check" checked={selSums.includes(s.summaryId)}
+                      onChange={() => toggleSum(s.summaryId)} aria-label={`${s.title} 선택`} />
+                    <button className={`summary-item ${s.summaryId === selectedSummaryId ? "active" : ""}`}
+                      onClick={() => onSelectSummary(s.summaryId)}>
+                      {pinned.includes(s.summaryId) && <span className="pin-dot"><Pin size={10} /></span>}
+                      <strong>{s.title}</strong>
+                      <span>{s.sourceType === "material" ? "자료 요약" : "노트 요약"}</span>
+                    </button>
+                  </div>
+                ))
+              }
+            </div>
+            <div className="split-divider" />
+            <article className="summary-detail">
+              {selectedSummary ? (
+                <>
+                  <div className="detail-title">
+                    <div><h4>{selectedSummary.title}</h4><span>{new Date(selectedSummary.createdAt).toLocaleString("ko-KR")}</span></div>
+                    <button className="icon-button danger" aria-label="요약 삭제" onClick={() => onDeleteSummary(selectedSummary.summaryId)}>
+                      <Trash2 size={17} />
+                    </button>
+                  </div>
+                  <MarkdownPreview content={selectedSummary.content} />
+                </>
+              ) : <p className="empty-text">조회할 요약을 선택하세요.</p>}
+            </article>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
