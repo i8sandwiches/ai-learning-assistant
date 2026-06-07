@@ -881,12 +881,15 @@ function SourceChatPanel({ source, userId, onClose }: { source: QnASource; userI
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, userId, sourceType: source.type }),
       });
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as { answer: string };
+      const data = (await res.json().catch(() => ({}))) as { answer?: string; error?: string };
+      if (!res.ok || !data.answer) {
+        throw new Error(data.error || "오류가 발생했습니다. 다시 시도해 주세요.");
+      }
       const aiMsg: ChatMessage = { role: "assistant", content: data.answer, createdAt: new Date().toISOString() };
       setMessages(prev => [...prev, aiMsg]);
-    } catch {
-      const errMsg: ChatMessage = { role: "assistant", content: "오류가 발생했습니다. 다시 시도해 주세요.", createdAt: new Date().toISOString() };
+    } catch (err) {
+      const content = err instanceof Error && err.message ? err.message : "오류가 발생했습니다. 다시 시도해 주세요.";
+      const errMsg: ChatMessage = { role: "assistant", content, createdAt: new Date().toISOString() };
       setMessages(prev => [...prev, errMsg]);
     } finally {
       setLoading(false);

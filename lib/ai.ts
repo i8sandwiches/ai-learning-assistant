@@ -4,6 +4,52 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_ENDPOINT =
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
+/** Error thrown when a Gemini request ultimately fails. `retryable` covers
+ *  transient conditions (429 rate-limit, 503 overloaded) the caller can surface
+ *  as "try again shortly". */
+export class GeminiError extends Error {
+  status: number;
+  retryable: boolean;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "GeminiError";
+    this.status = status;
+    this.retryable = status === 429 || status === 503;
+  }
+}
+
+const RETRYABLE_STATUS = new Set([429, 503]);
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** POST to Gemini with exponential backoff on transient (429/503) errors.
+ *  Honors a Retry-After header when present. Returns the final Response; the
+ *  caller decides how to handle a non-ok result. */
+async function geminiFetch(url: string, init: RequestInit, maxRetries = 3): Promise<Response> {
+  let attempt = 0;
+  while (true) {
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch (networkError) {
+      if (attempt >= maxRetries) throw networkError;
+      await sleep(Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250);
+      attempt++;
+      continue;
+    }
+
+    if (response.ok || !RETRYABLE_STATUS.has(response.status) || attempt >= maxRetries) {
+      return response;
+    }
+
+    const retryAfterSec = Number(response.headers.get("retry-after"));
+    const delay = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+      ? retryAfterSec * 1000
+      : Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+    await sleep(delay);
+    attempt++;
+  }
+}
+
 export async function generateGeminiText(prompt: string) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -11,7 +57,7 @@ export async function generateGeminiText(prompt: string) {
     return null;
   }
 
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+  const response = await geminiFetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -30,7 +76,7 @@ export async function generateGeminiText(prompt: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini request failed: ${response.status}`);
+    throw new GeminiError(response.status, `Gemini request failed: ${response.status}`);
   }
 
   const data = (await response.json()) as {
@@ -111,7 +157,7 @@ export async function extractTextFromPdfBase64(base64Data: string): Promise<stri
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
 
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+  const response = await geminiFetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -134,7 +180,7 @@ export async function extractTextFromPdfBase64(base64Data: string): Promise<stri
     })
   });
 
-  if (!response.ok) throw new Error(`Gemini PDF extraction failed: ${response.status}`);
+  if (!response.ok) throw new GeminiError(response.status, `Gemini PDF extraction failed: ${response.status}`);
 
   const data = (await response.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
@@ -173,7 +219,7 @@ export async function answerFromMaterial(
     { role: "user", parts: [{ text: question }] }
   ];
 
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+  const response = await geminiFetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -183,7 +229,7 @@ export async function answerFromMaterial(
     })
   });
 
-  if (!response.ok) throw new Error(`Gemini chat failed: ${response.status}`);
+  if (!response.ok) throw new GeminiError(response.status, `Gemini chat failed: ${response.status}`);
 
   const data = (await response.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
