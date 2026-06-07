@@ -2890,7 +2890,7 @@ function formatTimer(totalSeconds: number) {
 const TUTOR_API = {
   provider: "gemini" as "gemini" | "openai" | "claude" | "custom",
   endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-  apiKey: "AIzaSyCPWk774d_9ck4uZmdnOkyBGTDYGZVaSFQ",
+  apiKey: "",
   model: "gemini-2.0-flash",
   systemPrompt: "당신은 친절하고 침착한 AI 학습 튜터입니다. 한국어로 답변하되, 코드 예제와 단계별 설명을 적극적으로 사용하세요. 답변은 학생이 직접 추론할 수 있도록 가이드하는 방향으로 작성하며, 지나치게 길지 않게 핵심을 짚어주세요.",
 };
