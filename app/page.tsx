@@ -2914,14 +2914,29 @@ function formatTimer(totalSeconds: number) {
 /* ============================================================
    AI Tutor
    ============================================================
-   Gemini API 연동: 아래 apiKey에 https://aistudio.google.com/apikey 에서
-   발급받은 키만 넣으면 됩니다. (endpoint/model/provider는 그대로)
+   API 키는 .env.local 에 환경변수로 설정합니다 (코드에 하드코딩 X):
+
+     NEXT_PUBLIC_TUTOR_API_KEY=발급받은_키
+     NEXT_PUBLIC_TUTOR_PROVIDER=gemini      # gemini | openai | claude | custom (선택)
+     NEXT_PUBLIC_TUTOR_MODEL=gemini-2.0-flash   # (선택)
+     NEXT_PUBLIC_TUTOR_ENDPOINT=...             # (선택, provider 기본 endpoint 덮어쓰기)
+
+   Gemini 키 발급: https://aistudio.google.com/apikey
+   주의: NEXT_PUBLIC_ 접두사가 붙은 값은 브라우저 번들에 포함되어 노출됩니다.
    ============================================================ */
+const TUTOR_PROVIDER = (process.env.NEXT_PUBLIC_TUTOR_PROVIDER || "gemini") as
+  "gemini" | "openai" | "claude" | "custom";
+const TUTOR_DEFAULT_ENDPOINT: Record<string, string> = {
+  gemini: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+  openai: "https://api.openai.com/v1/chat/completions",
+  claude: "https://api.anthropic.com/v1/messages",
+  custom: "",
+};
 const TUTOR_API = {
-  provider: "gemini" as "gemini" | "openai" | "claude" | "custom",
-  endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-  apiKey: "",
-  model: "gemini-2.0-flash",
+  provider: TUTOR_PROVIDER,
+  endpoint: process.env.NEXT_PUBLIC_TUTOR_ENDPOINT || TUTOR_DEFAULT_ENDPOINT[TUTOR_PROVIDER] || "",
+  apiKey: process.env.NEXT_PUBLIC_TUTOR_API_KEY || "",
+  model: process.env.NEXT_PUBLIC_TUTOR_MODEL || "gemini-2.0-flash",
   systemPrompt: "당신은 친절하고 침착한 AI 학습 튜터입니다. 한국어로 답변하되, 코드 예제와 단계별 설명을 적극적으로 사용하세요. 답변은 학생이 직접 추론할 수 있도록 가이드하는 방향으로 작성하며, 지나치게 길지 않게 핵심을 짚어주세요.",
 };
 
@@ -2933,7 +2948,7 @@ async function callTutorAPI(messages: { role: string; content: string }[]) {
   if (!endpoint || !apiKey) {
     await new Promise(r => setTimeout(r, 800 + Math.random() * 600));
     const last = messages[messages.length - 1]?.content || "";
-    return `**(데모 모드)** 실제 응답을 받으려면 \`page.tsx\`의 \`TUTOR_API\` 객체에 endpoint와 apiKey를 입력하세요.\n\n질문: "${last.slice(0, 80)}${last.length > 80 ? "…" : ""}"\n\n좋은 질문입니다. 이 주제를 이해하려면 세 가지를 살펴보면 좋습니다:\n\n1. **기본 개념** — 가장 단순한 형태부터 시작\n2. **핵심 패턴** — 반복되는 구조 파악\n3. **응용** — 실제 문제에 적용\n\n\`\`\`python\ndef example(n):\n    if n <= 1:\n        return n\n    return example(n - 1) + example(n - 2)\n\`\`\`\n\n어느 부분부터 더 깊이 살펴볼까요?`;
+    return `**(데모 모드)** 실제 응답을 받으려면 \`.env.local\`에 \`NEXT_PUBLIC_TUTOR_API_KEY\`를 설정한 뒤 개발 서버를 다시 시작하세요.\n\n질문: "${last.slice(0, 80)}${last.length > 80 ? "…" : ""}"\n\n좋은 질문입니다. 이 주제를 이해하려면 세 가지를 살펴보면 좋습니다:\n\n1. **기본 개념** — 가장 단순한 형태부터 시작\n2. **핵심 패턴** — 반복되는 구조 파악\n3. **응용** — 실제 문제에 적용\n\n\`\`\`python\ndef example(n):\n    if n <= 1:\n        return n\n    return example(n - 1) + example(n - 2)\n\`\`\`\n\n어느 부분부터 더 깊이 살펴볼까요?`;
   }
   let url: string, headers: Record<string, string>, body: string;
   if (provider === "claude") {
