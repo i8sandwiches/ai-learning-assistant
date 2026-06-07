@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { extractTextFromPdfBase64 } from "@/lib/ai";
 import { collectionNames, ensureIndexes } from "@/lib/dbCollections";
 import { getAppDb } from "@/lib/mongodb";
@@ -8,17 +7,16 @@ import { FileType, LearningMaterial } from "@/lib/types";
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
-  const userId = session.user.id;
-
   let formData: FormData;
   try {
     formData = await request.formData();
   } catch {
     return NextResponse.json({ error: "파일 파싱 오류" }, { status: 400 });
+  }
+
+  const userId = (formData.get("userId") as string | null)?.trim();
+  if (!userId) {
+    return NextResponse.json({ error: "userId가 필요합니다." }, { status: 400 });
   }
 
   const file = formData.get("file") as File | null;

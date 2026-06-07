@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { answerFromMaterial, GeminiChatTurn } from "@/lib/ai";
 import {
   appendChatMessages,
@@ -11,15 +10,14 @@ import { getAppDb } from "@/lib/mongodb";
 import { ChatMessage, LearningMaterial } from "@/lib/types";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ materialId: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  const userId = new URL(request.url).searchParams.get("userId")?.trim();
+  if (!userId) {
+    return NextResponse.json({ error: "userId가 필요합니다." }, { status: 400 });
   }
   const { materialId } = await params;
-  const userId = session.user.id;
 
   await ensureIndexes();
   const chatSession = await getOrCreateChatSession(userId, materialId);
@@ -30,14 +28,13 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ materialId: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
   const { materialId } = await params;
-  const userId = session.user.id;
 
-  const body = (await request.json()) as { question?: string };
+  const body = (await request.json()) as { question?: string; userId?: string };
+  const userId = body.userId?.trim();
+  if (!userId) {
+    return NextResponse.json({ error: "userId가 필요합니다." }, { status: 400 });
+  }
   const question = body.question?.trim();
   if (!question) {
     return NextResponse.json({ error: "질문이 비어 있습니다." }, { status: 400 });
