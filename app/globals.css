@@ -238,6 +238,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 .sum-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .sum-count { color: var(--muted); font-size: 12px; font-weight: 600; }
+.qna-group-label { margin: 12px 4px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+.qna-group-label:first-child { margin-top: 0; }
 .sum-row { display: flex; align-items: stretch; gap: 5px; }
 .sum-row .row-check { align-self: center; margin-left: 2px; }
 .sum-row .summary-item { flex: 1; min-width: 0; }
