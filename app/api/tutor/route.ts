@@ -18,12 +18,13 @@ type Provider = "gemini" | "openai" | "claude" | "custom";
 
 const PROVIDER = (process.env.TUTOR_PROVIDER || "gemini") as Provider;
 const API_KEY = process.env.TUTOR_API_KEY || "";
-const MODEL = process.env.TUTOR_MODEL || "gemini-2.0-flash";
+const MODEL = process.env.TUTOR_MODEL || "gemini-2.5-flash";
 const SYSTEM_PROMPT =
   "당신은 친절하고 침착한 AI 학습 튜터입니다. 한국어로 답변하되, 코드 예제와 단계별 설명을 적극적으로 사용하세요. 답변은 학생이 직접 추론할 수 있도록 가이드하는 방향으로 작성하며, 지나치게 길지 않게 핵심을 짚어주세요.";
 
 const DEFAULT_ENDPOINT: Record<Provider, string> = {
-  gemini: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+  // Gemini는 모델 이름이 URL에 들어가므로 MODEL 값으로 동적 생성
+  gemini: `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
   openai: "https://api.openai.com/v1/chat/completions",
   claude: "https://api.anthropic.com/v1/messages",
   custom: "",
