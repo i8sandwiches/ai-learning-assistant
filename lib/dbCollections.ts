@@ -1,4 +1,4 @@
-import { AppState, ChatMessage, LearningMaterial, MaterialChatSession, Quiz, StudyNote, StudySession, Summary, User, UserPreferences } from "@/lib/types";
+import { AppState, ChatMessage, LearningMaterial, MaterialChatSession, Quiz, StudyClock, StudyNote, StudySession, Summary, User, UserPreferences } from "@/lib/types";
 import { getAppDb } from "@/lib/mongodb";
 
 export const collectionNames = {
@@ -9,10 +9,12 @@ export const collectionNames = {
   quizzes: "quizzes",
   sessions: "studySessions",
   preferences: "preferences",
-  materialChats: "materialChats"
+  materialChats: "materialChats",
+  studyClocks: "studyClocks"
 } as const;
 
 type PreferencesDocument = UserPreferences & { userId: string };
+type StudyClockDocument = StudyClock & { userId: string };
 
 const globalForIndexes = globalThis as typeof globalThis & {
   _mongoIndexesPromise?: Promise<void>;
@@ -46,8 +48,25 @@ async function createIndexes() {
     db.collection<StudySession>(collectionNames.sessions).createIndex({ sessionId: 1 }, { unique: true }),
     db.collection<PreferencesDocument>(collectionNames.preferences).createIndex({ userId: 1 }, { unique: true }),
     db.collection<MaterialChatSession>(collectionNames.materialChats).createIndex({ userId: 1, materialId: 1 }),
-    db.collection<MaterialChatSession>(collectionNames.materialChats).createIndex({ sessionId: 1 }, { unique: true })
+    db.collection<MaterialChatSession>(collectionNames.materialChats).createIndex({ sessionId: 1 }, { unique: true }),
+    db.collection<StudyClockDocument>(collectionNames.studyClocks).createIndex({ userId: 1 }, { unique: true })
   ]);
+}
+
+export async function loadStudyClock(userId: string): Promise<StudyClock | null> {
+  const db = await getAppDb();
+  const doc = await db.collection<StudyClockDocument>(collectionNames.studyClocks).findOne({ userId });
+  if (!doc) return null;
+  const { userId: _userId, ...clock } = stripMongoId(doc);
+  void _userId;
+  return clock;
+}
+
+export async function saveStudyClock(userId: string, clock: StudyClock) {
+  const db = await getAppDb();
+  await db
+    .collection<StudyClockDocument>(collectionNames.studyClocks)
+    .updateOne({ userId }, { $set: { ...clock, userId } }, { upsert: true });
 }
 
 export async function loadPreferences(userId: string): Promise<UserPreferences | null> {

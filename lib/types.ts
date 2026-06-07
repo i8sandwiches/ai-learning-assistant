@@ -121,6 +121,14 @@ export interface UserPreferences {
   timerFavs: TimerFav[];
 }
 
+// ---- Header study clock (per-account, synced across devices) ----
+export interface StudyClock {
+  date: string;     // YYYY-MM-DD of the tracking day
+  startMs: number;  // epoch ms when today's tracking started
+  accKRW: number;   // accumulated study value from previous days (KRW)
+  todayKRW: number; // last-checkpointed value for `date` (used for day rollover)
+}
+
 // ---- Material Chat ----
 export interface ChatMessage {
   role: "user" | "assistant";
