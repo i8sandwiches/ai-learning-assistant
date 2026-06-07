@@ -2425,6 +2425,9 @@ export default function Home() {
   /* sync seconds/totalSeconds when cfg changes while idle */
   useEffect(() => {
     if (isRunning) return;
+    // Mid-session pause (timer started, not yet reset/finished): keep the
+    // remaining time so pausing doesn't wipe the in-progress study time.
+    if (timerStartRef.current) return;
     if (timerType === "TIMER") {
       const s = Math.max(1, (timerCfg.timerH || 0) * 3600 + (timerCfg.timerM || 0) * 60 + (timerCfg.timerS || 0));
       setSeconds(s); setTotalSeconds(s);
