@@ -2943,11 +2943,23 @@ async function fetchTutorConfigured(): Promise<boolean> {
   }
 }
 
-function loadTutorSessions(): TutorSession[] {
-  try { return JSON.parse(localStorage.getItem("hak.tutor.sessions") || "[]"); } catch { return []; }
+// 유저별 튜터 대화는 DB(/api/tutor/sessions)에 저장되어 기기 간 동기화됩니다.
+async function loadTutorSessions(userId: string): Promise<TutorSession[]> {
+  try {
+    const res = await fetch(`/api/tutor/sessions?userId=${encodeURIComponent(userId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.sessions) ? data.sessions : [];
+  } catch { return []; }
 }
-function saveTutorSessions(s: TutorSession[]) {
-  try { localStorage.setItem("hak.tutor.sessions", JSON.stringify(s.slice(0, 20))); } catch {}
+async function saveTutorSessions(userId: string, sessions: TutorSession[]) {
+  try {
+    await fetch("/api/tutor/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, sessions: sessions.slice(0, 20) }),
+    });
+  } catch {}
 }
 
 function renderTutorMsg(text: string): Array<{ type: "text" | "code"; content: string; lang?: string; key: number }> {
@@ -3005,14 +3017,36 @@ function TutorCodeBlock({ lang, content }: { lang?: string; content: string }) {
   );
 }
 
-function TutorView() {
-  const [sessions, setSessions] = useState<TutorSession[]>(() => (typeof window !== "undefined" ? loadTutorSessions() : []));
-  const [activeId, setActiveId] = useState<string | null>(() => (typeof window !== "undefined" ? loadTutorSessions()[0]?.id || null : null));
+function TutorView({ userId }: { userId: string }) {
+  const [sessions, setSessions] = useState<TutorSession[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const loadedUserRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { saveTutorSessions(sessions); }, [sessions]);
+  // 로그인한 계정의 대화를 DB에서 불러옵니다 (계정별·기기 간 동기화).
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    loadTutorSessions(userId).then(loadedSessions => {
+      if (cancelled) return;
+      setSessions(loadedSessions);
+      setActiveId(loadedSessions[0]?.id ?? null);
+      loadedUserRef.current = userId;
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // 변경분을 디바운스 후 DB에 저장 (해당 계정의 데이터가 로드된 뒤에만).
+  useEffect(() => {
+    if (!loaded || loadedUserRef.current !== userId) return;
+    const handle = window.setTimeout(() => { void saveTutorSessions(userId, sessions); }, 600);
+    return () => window.clearTimeout(handle);
+  }, [sessions, loaded, userId]);
+
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [activeId, sessions]);
 
   const active = sessions.find(s => s.id === activeId);
@@ -4000,7 +4034,7 @@ export default function Home() {
           />
         )}
 
-        {activeTab === "tutor" && <TutorView />}
+        {activeTab === "tutor" && <TutorView userId={currentUser.userId} />}
 
         {activeTab === "timer" && (
           <TimerView
