@@ -630,7 +630,10 @@ function Sidebar({
       <aside className={`sidebar ${open ? "is-open" : ""}`}>
         <div>
           <div className="brand">
-            <span className="brand-mark"><Sparkles size={22} /></span>
+            <span className="brand-mark" style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", background: "none" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-crop.png" width={30} height={30} alt="로고" style={{ objectFit: "cover", display: "block", flexShrink: 0 }} />
+            </span>
             <span>AI 학습 어시스턴트</span>
             <button className="drawer-close" aria-label="메뉴 닫기" onClick={() => setOpen(false)}><Icon name="x" size={20} /></button>
           </div>
@@ -1108,12 +1111,16 @@ function Overview({
 /* ============================================================
    SessionList
    ============================================================ */
-function SessionList({ sessions }: { sessions: StudySession[] }) {
+function SessionList({ sessions, selected = [], onToggle }: {
+  sessions: StudySession[]; selected?: string[]; onToggle?: (id: string) => void;
+}) {
   if (sessions.length === 0) return <p className="empty-text">아직 기록된 학습 시간이 없습니다.</p>;
   return (
     <div className="session-list">
       {sessions.map(session => (
-        <div className="session-row" key={session.sessionId}>
+        <div className={`session-row ${selected.includes(session.sessionId) ? "is-selected" : ""}`} key={session.sessionId}>
+          {onToggle && <input type="checkbox" className="row-check" checked={selected.includes(session.sessionId)}
+            onChange={() => onToggle(session.sessionId)} aria-label={`${session.subject} 기록 선택`} />}
           <Clock size={17} />
           <div>
             <strong>{session.subject}</strong>
@@ -1123,6 +1130,30 @@ function SessionList({ sessions }: { sessions: StudySession[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/* ============================================================
+   SessionPanel — 자동 기록 (선택/삭제)
+   ============================================================ */
+function SessionPanel({ sessions, onDeleteSession }: {
+  sessions: StudySession[]; onDeleteSession: (ids: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const toggle = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  return (
+    <>
+      <div className="section-heading">
+        <h3>자동 기록</h3>
+        {selected.length > 0 ? (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="chip-button danger" onClick={() => { onDeleteSession(selected); setSelected([]); }}><Trash2 size={13} />삭제 ({selected.length})</button>
+            <button className="chip-button" onClick={() => setSelected([])}><X size={13} />취소</button>
+          </div>
+        ) : <span>{sessions.length}개</span>}
+      </div>
+      <SessionList sessions={sessions} selected={selected} onToggle={toggle} />
+    </>
   );
 }
 
@@ -1838,7 +1869,7 @@ function PomoClock({ kind, label, hms, totalSec, active, running, started, liveS
 
 function TimerView({
   timerType, seconds, totalSeconds, isRunning, started, subject, sessions, pomoPhase,
-  timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onDeleteSession,
+  timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onStopAndReset, onDeleteSession,
   categories, onManageCategories, presets, setPresets, timerFavs, setTimerFavs,
 }: {
   timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean; started: boolean;
@@ -1846,7 +1877,7 @@ function TimerView({
   timerCfg: TimerCfg; setTimerCfg: React.Dispatch<React.SetStateAction<TimerCfg>>;
   onTypeChange: (t: TimerType) => void; onSubjectChange: (s: string) => void;
   onStart: () => void; onPause: () => void; onFinish: () => void; onReset: () => void;
-  onRecordLap: () => void; onDeleteSession: (ids: string[]) => void;
+  onRecordLap: () => void; onStopAndReset: () => void; onDeleteSession: (ids: string[]) => void;
   categories: string[]; onManageCategories: () => void;
   presets: TimerPreset[]; setPresets: React.Dispatch<React.SetStateAction<TimerPreset[]>>;
   timerFavs: TimerFav[]; setTimerFavs: React.Dispatch<React.SetStateAction<TimerFav[]>>;
@@ -1953,7 +1984,7 @@ function TimerView({
           <button className="secondary-button" onClick={timerType === "STOPWATCH" ? onRecordLap : onFinish}>
             <BookmarkPlus size={17} /> 기록
           </button>
-          <button className="ghost-button" onClick={onReset}><TimerReset size={17} /> 초기화</button>
+          <button className="ghost-button" onClick={timerType === "STOPWATCH" ? onStopAndReset : onReset}><TimerReset size={17} /> 종료/초기화</button>
         </div>
       </section>
 
@@ -2005,8 +2036,7 @@ function TimerView({
           </section>
         )}
         <section className="panel">
-          <div className="section-heading"><h3>자동 기록</h3><span>{sessions.length}개</span></div>
-          <SessionList sessions={sessions.slice(0, 8)} />
+          <SessionPanel sessions={sessions} onDeleteSession={onDeleteSession} />
         </section>
       </div>
     </div>
@@ -3597,6 +3627,8 @@ export default function Home() {
       // 폴더 저장만 — AI 요약은 자료별 "AI 요약" 버튼에서 생성합니다.
       const withCat: LearningMaterial = { ...material, category: cat };
       setState(prev => ({ ...prev, materials: [withCat, ...prev.materials] }));
+      // 카테고리까지 DB에 반영 (업로드 라우트는 카테고리를 모름)
+      void persistStore({ operation: "saveMaterial", userId: currentUser.userId, material: withCat });
       setUploadStatus(`'${material.fileName}' 자료를 ${cat} 폴더에 저장했습니다.`);
       pushToast(`'${cat}' 폴더에 자료를 업로드했어요`, { icon: "upload-cloud" });
     } catch {
@@ -3704,12 +3736,17 @@ export default function Home() {
   }
   function renameMaterial(matId: string, newName: string) {
     const nm = newName.trim();
-    if (!nm) return;
-    setState(prev => ({ ...prev, materials: prev.materials.map(m => m.materialId === matId ? { ...m, fileName: nm } : m) }));
+    if (!nm || !currentUser) return;
+    let updated: LearningMaterial | undefined;
+    setState(prev => ({ ...prev, materials: prev.materials.map(m => { if (m.materialId !== matId) return m; updated = { ...m, fileName: nm }; return updated; }) }));
+    if (updated) void persistStore({ operation: "saveMaterial", userId: currentUser.userId, material: updated });
     pushToast("자료 이름을 변경했어요");
   }
   function moveMaterial(matId: string, newCategory: string) {
-    setState(prev => ({ ...prev, materials: prev.materials.map(m => m.materialId === matId ? { ...m, category: newCategory } : m) }));
+    if (!currentUser) return;
+    let updated: LearningMaterial | undefined;
+    setState(prev => ({ ...prev, materials: prev.materials.map(m => { if (m.materialId !== matId) return m; updated = { ...m, category: newCategory }; return updated; }) }));
+    if (updated) void persistStore({ operation: "saveMaterial", userId: currentUser.userId, material: updated });
     pushToast(`'${newCategory}' 폴더로 이동했어요`);
   }
   async function summarizeMaterial(materialId: string) {
@@ -3838,12 +3875,31 @@ export default function Home() {
     const dur = timerType === "STOPWATCH"
       ? Math.max(1, Math.round(seconds / 60))
       : Math.max(1, Math.round((totalSeconds - seconds) / 60));
-    recordSession(dur);
+    if (dur > 0) {
+      recordSession(dur);
+      pushToast(`학습 ${formatMinutes(dur)}을 기록했어요`, { accent: true });
+    }
     resetTimer();
   }
   function recordLap() {
     const dur = Math.max(1, Math.round(seconds / 60));
     recordSession(dur);
+    pushToast(`학습 ${formatMinutes(dur)}을 기록했어요`, { accent: true });
+  }
+  function stopAndReset() {
+    if (isRunning && seconds > 0) {
+      const dur = Math.max(1, Math.round(seconds / 60));
+      recordSession(dur);
+      pushToast(`학습 ${formatMinutes(dur)}을 기록했어요`, { accent: true });
+    }
+    resetTimer();
+  }
+  function deleteSessions(ids: string[]) {
+    if (!currentUser) return;
+    const set = new Set(ids);
+    setState(prev => ({ ...prev, sessions: prev.sessions.filter(s => !set.has(s.sessionId)) }));
+    ids.forEach(id => void persistStore({ operation: "deleteSession", userId: currentUser.userId, sessionId: id }));
+    pushToast(`기록 ${ids.length}개를 삭제했어요`);
   }
   function switchTimerType(nextType: TimerType) {
     setTimerType(nextType); setIsRunning(false); setPomoPhase("study");
@@ -3858,7 +3914,10 @@ export default function Home() {
       <main className="auth-shell">
         <div className="auth-aurora" />
         <section className="auth-panel">
-          <div className="brand-mark"><Sparkles size={28} /></div>
+          <div className="brand-mark" style={{ background: "none", padding: 0, width: 56, height: 56, borderRadius: "50%", overflow: "hidden" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-crop.png" width={56} height={56} alt="로고" style={{ objectFit: "cover", display: "block" }} />
+          </div>
           <h1>AI 학습 어시스턴트</h1>
           <p>자료 요약, 노트 복습, Anki 카드, 타이머 기록, 캐릭터 성장까지 한 흐름으로 관리합니다.</p>
           <div className="nickname-row">
@@ -3974,7 +4033,7 @@ export default function Home() {
             timerCfg={timerCfg} setTimerCfg={setTimerCfg}
             onTypeChange={switchTimerType} onSubjectChange={setTimerSubject}
             onStart={startTimer} onPause={pauseTimer} onFinish={finishTimer} onReset={resetTimer}
-            onRecordLap={recordLap} onDeleteSession={() => {}}
+            onRecordLap={recordLap} onStopAndReset={stopAndReset} onDeleteSession={deleteSessions}
             categories={categories} onManageCategories={() => setCatManagerOpen(true)}
             presets={presets} setPresets={setPresets} timerFavs={timerFavs} setTimerFavs={setTimerFavs}
           />
