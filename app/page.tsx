@@ -2854,9 +2854,14 @@ export default function Home() {
   }
 
   // Elapsed seconds of the in-progress session, so the header clock ticks live.
-  const liveStudySeconds = isRunning
-    ? (timerType === "STOPWATCH" ? seconds : Math.max(0, totalSeconds - seconds))
-    : 0;
+  // Not gated on isRunning, so pausing keeps the accumulated time visible
+  // (it is only recorded as a session on finish). Pomodoro breaks don't count.
+  const liveStudySeconds =
+    timerType === "STOPWATCH"
+      ? seconds
+      : timerType === "POMODORO" && pomoPhase !== "study"
+        ? 0
+        : Math.max(0, totalSeconds - seconds);
 
   /* ---- Login screen ---- */
   if (!currentUser) {
