@@ -45,6 +45,21 @@ type StoreOperation =
       session: StudySession;
     }
   | {
+      operation: "deleteSession";
+      userId: string;
+      sessionId: string;
+    }
+  | {
+      operation: "saveMaterial";
+      userId: string;
+      material: LearningMaterial;
+    }
+  | {
+      operation: "deleteMaterial";
+      userId: string;
+      materialId: string;
+    }
+  | {
       operation: "savePreferences";
       userId: string;
       preferences: UserPreferences;
@@ -147,6 +162,24 @@ export async function POST(request: Request) {
         await db
           .collection<StudySession>(collectionNames.sessions)
           .updateOne({ sessionId: body.session.sessionId, userId }, { $set: body.session }, { upsert: true });
+        break;
+      }
+      case "deleteSession": {
+        await db.collection<StudySession>(collectionNames.sessions).deleteOne({ sessionId: body.sessionId, userId });
+        break;
+      }
+      case "saveMaterial": {
+        assertOwner(userId, body.material.userId);
+        await db
+          .collection<LearningMaterial>(collectionNames.materials)
+          .updateOne({ materialId: body.material.materialId, userId }, { $set: body.material }, { upsert: true });
+        break;
+      }
+      case "deleteMaterial": {
+        await Promise.all([
+          db.collection<LearningMaterial>(collectionNames.materials).deleteOne({ materialId: body.materialId, userId }),
+          db.collection<Summary>(collectionNames.summaries).deleteMany({ materialId: body.materialId, userId })
+        ]);
         break;
       }
       case "savePreferences": {
