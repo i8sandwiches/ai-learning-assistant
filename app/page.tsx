@@ -272,37 +272,26 @@ function CategoryField({ categories, value, onChange, onManage, label = "과목"
 /* ============================================================
    SessionClock
    ============================================================ */
-function SessionClock() {
+function SessionClock({ sessions }: { sessions: StudySession[] }) {
+  // Derive study time & value from the user's recorded sessions (DB-backed,
+  // per-account, synced across devices) rather than a device-local wall clock.
   const todayStr = new Date().toISOString().slice(0, 10);
-  const SK = "studyapp.sessStart." + todayStr;
-  const AK = "studyapp.accKRW";
-  const [startMs] = useState(() => {
-    if (typeof window === "undefined") return Date.now();
-    const v = localStorage.getItem(SK);
-    if (v) return parseInt(v, 10);
-    const t = Date.now();
-    localStorage.setItem(SK, String(t));
-    return t;
-  });
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick(n => n + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const elapsedMs = Date.now() - startMs;
-  const totalSec = Math.floor(elapsedMs / 1000);
-  const hh = Math.floor(totalSec / 3600);
-  const mm = Math.floor((totalSec % 3600) / 60);
-  const ss = totalSec % 60;
-  const timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  const todayValue = Math.floor(elapsedMs / 3600000) * MIN_WAGE;
-  const accBase = typeof window !== "undefined" ? parseInt(localStorage.getItem(AK) || "0", 10) : 0;
-  const totalAcc = accBase + todayValue;
+  const todayMin = sessions
+    .filter(s => s.endTime.slice(0, 10) === todayStr)
+    .reduce((a, s) => a + s.durationMinutes, 0);
+  const totalMin = sessions.reduce((a, s) => a + s.durationMinutes, 0);
+
+  const hh = Math.floor(todayMin / 60);
+  const mm = todayMin % 60;
+  const timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+
+  const todayValue = Math.round((todayMin / 60) * MIN_WAGE);
+  const totalValue = Math.round((totalMin / 60) * MIN_WAGE);
   return (
     <div className="session-clock">
       <div className="sc-timer">{timeStr}</div>
-      <div className="sc-value">오늘 학습가치 <strong>{todayValue > 0 ? todayValue.toLocaleString("ko-KR") + "원" : "집계 중"}</strong></div>
-      <div className="sc-acc">누적 {totalAcc.toLocaleString("ko-KR")}원</div>
+      <div className="sc-value">오늘 학습가치 <strong>{todayValue > 0 ? todayValue.toLocaleString("ko-KR") + "원" : "0원"}</strong></div>
+      <div className="sc-acc">누적 {totalValue.toLocaleString("ko-KR")}원</div>
     </div>
   );
 }
@@ -2913,7 +2902,7 @@ export default function Home() {
               <div className="title-wrap">
                 <p className="eyebrow">Personal learning dashboard</p>
                 <h1 className="page-title">학습 대시보드</h1>
-                <SessionClock />
+                <SessionClock sessions={userSessions} />
               </div>
               <ActivityHeatmap sessions={userSessions} />
             </header>
@@ -2932,7 +2921,7 @@ export default function Home() {
               <p className="eyebrow">Personal learning cockpit</p>
               <h2>{TAB_TITLES[activeTab]}</h2>
             </div>
-            <SessionClock />
+            <SessionClock sessions={userSessions} />
           </header>
         )}
 
