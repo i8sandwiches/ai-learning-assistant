@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { answerFromMaterial, GeminiChatTurn } from "@/lib/ai";
+import { answerFromMaterial, GeminiChatTurn, GeminiError } from "@/lib/ai";
 import {
   appendChatMessages,
   collectionNames,
@@ -80,6 +80,12 @@ export async function POST(
     answer = await answerFromMaterial(sourceContent, question, history);
   } catch (e) {
     console.error("Gemini 오류:", e);
+    if (e instanceof GeminiError && e.retryable) {
+      return NextResponse.json(
+        { error: "AI 서버가 잠시 혼잡합니다. 잠시 후 다시 시도해 주세요." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: "AI 응답 생성 중 오류가 발생했습니다." }, { status: 500 });
   }
 

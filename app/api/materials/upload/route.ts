@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { extractTextFromPdfBase64 } from "@/lib/ai";
+import { extractTextFromPdfBase64, GeminiError } from "@/lib/ai";
 import { collectionNames, ensureIndexes } from "@/lib/dbCollections";
 import { getAppDb } from "@/lib/mongodb";
 import { FileType, LearningMaterial } from "@/lib/types";
@@ -40,6 +40,12 @@ export async function POST(request: Request) {
       extractedText = await extractTextFromPdfBase64(base64);
     } catch (e) {
       console.error("PDF 추출 오류:", e);
+      if (e instanceof GeminiError && e.retryable) {
+        return NextResponse.json(
+          { error: "AI 서버가 잠시 혼잡합니다. 잠시 후 다시 시도해 주세요." },
+          { status: 503 }
+        );
+      }
       return NextResponse.json({ error: "PDF 텍스트 추출에 실패했습니다." }, { status: 500 });
     }
   } else if (ext === "txt") {
