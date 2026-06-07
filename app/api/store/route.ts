@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { collectionNames, ensureIndexes, loadUserState, upsertUser } from "@/lib/dbCollections";
+import { collectionNames, ensureIndexes, loadPreferences, loadUserState, savePreferences, upsertUser } from "@/lib/dbCollections";
 import { getAppDb } from "@/lib/mongodb";
-import { LearningMaterial, Quiz, StudyNote, StudySession, Summary, User } from "@/lib/types";
+import { LearningMaterial, Quiz, StudyNote, StudySession, Summary, User, UserPreferences } from "@/lib/types";
 
 type StoreOperation =
   | {
@@ -43,6 +43,11 @@ type StoreOperation =
       operation: "addSession";
       userId: string;
       session: StudySession;
+    }
+  | {
+      operation: "savePreferences";
+      userId: string;
+      preferences: UserPreferences;
     };
 
 export async function GET(request: Request) {
@@ -55,8 +60,8 @@ export async function GET(request: Request) {
     }
 
     await ensureIndexes();
-    const data = await loadUserState(userId);
-    return NextResponse.json(data);
+    const [data, preferences] = await Promise.all([loadUserState(userId), loadPreferences(userId)]);
+    return NextResponse.json({ ...data, preferences });
   } catch (error) {
     return NextResponse.json(
       {
@@ -142,6 +147,10 @@ export async function POST(request: Request) {
         await db
           .collection<StudySession>(collectionNames.sessions)
           .updateOne({ sessionId: body.session.sessionId, userId }, { $set: body.session }, { upsert: true });
+        break;
+      }
+      case "savePreferences": {
+        await savePreferences(userId, body.preferences);
         break;
       }
     }

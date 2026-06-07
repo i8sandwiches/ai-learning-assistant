@@ -87,6 +87,66 @@ export interface AppState {
   sessions: StudySession[];
 }
 
+// ---- User preferences (synced across devices via DB) ----
+export interface TimetableBlock {
+  label: string;
+  color: string;
+}
+
+export interface CalendarSched {
+  id: string;
+  text: string;
+  color: string;
+}
+
+export interface TimerPreset {
+  id: string;
+  name: string;
+  study: number;
+  brk: number;
+  repeat: number;
+}
+
+export interface TimerFav {
+  id: string;
+  name: string;
+  h: number;
+  m: number;
+  s: number;
+}
+
+export interface UserPreferences {
+  timetable: Record<string, TimetableBlock>;
+  scheds: Record<string, CalendarSched[]>;
+  categories: string[];
+  presets: TimerPreset[];
+  timerFavs: TimerFav[];
+}
+
+// ---- Header study clock (per-account, synced across devices) ----
+export interface StudyClock {
+  date: string;     // YYYY-MM-DD of the tracking day
+  startMs: number;  // epoch ms when today's tracking started
+  accKRW: number;   // accumulated study value from previous days (KRW)
+  todayKRW: number; // last-checkpointed value for `date` (used for day rollover)
+}
+
+// ---- Material Chat ----
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+export interface MaterialChatSession {
+  sessionId: string;
+  userId: string;
+  materialId: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ---- Anki ----
 export type CardState = "new" | "learn" | "review" | "suspended";
 export type AnkiGrade = 0 | 1 | 2 | 3;

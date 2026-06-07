@@ -4,6 +4,52 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_ENDPOINT =
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
+/** Error thrown when a Gemini request ultimately fails. `retryable` covers
+ *  transient conditions (429 rate-limit, 503 overloaded) the caller can surface
+ *  as "try again shortly". */
+export class GeminiError extends Error {
+  status: number;
+  retryable: boolean;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "GeminiError";
+    this.status = status;
+    this.retryable = status === 429 || status === 503;
+  }
+}
+
+const RETRYABLE_STATUS = new Set([429, 503]);
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** POST to Gemini with exponential backoff on transient (429/503) errors.
+ *  Honors a Retry-After header when present. Returns the final Response; the
+ *  caller decides how to handle a non-ok result. */
+async function geminiFetch(url: string, init: RequestInit, maxRetries = 3): Promise<Response> {
+  let attempt = 0;
+  while (true) {
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch (networkError) {
+      if (attempt >= maxRetries) throw networkError;
+      await sleep(Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250);
+      attempt++;
+      continue;
+    }
+
+    if (response.ok || !RETRYABLE_STATUS.has(response.status) || attempt >= maxRetries) {
+      return response;
+    }
+
+    const retryAfterSec = Number(response.headers.get("retry-after"));
+    const delay = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+      ? retryAfterSec * 1000
+      : Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+    await sleep(delay);
+    attempt++;
+  }
+}
+
 export async function generateGeminiText(prompt: string) {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -11,7 +57,7 @@ export async function generateGeminiText(prompt: string) {
     return null;
   }
 
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+  const response = await geminiFetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -30,7 +76,7 @@ export async function generateGeminiText(prompt: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini request failed: ${response.status}`);
+    throw new GeminiError(response.status, `Gemini request failed: ${response.status}`);
   }
 
   const data = (await response.json()) as {
@@ -104,4 +150,90 @@ export async function generateStudyKit(title: string, content: string) {
   ]);
 
   return { summary, quizzes };
+}
+
+// ---- PDF 텍스트 추출 (Gemini 인라인 base64) ----
+export async function extractTextFromPdfBase64(base64Data: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const response = await geminiFetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              inline_data: {
+                mime_type: "application/pdf",
+                data: base64Data
+              }
+            },
+            {
+              text: "이 PDF의 모든 텍스트 내용을 그대로 추출해라. 형식 변경 없이 원문 텍스트만 반환하라."
+            }
+          ]
+        }
+      ],
+      generationConfig: { temperature: 0, maxOutputTokens: 8192 }
+    })
+  });
+
+  if (!response.ok) throw new GeminiError(response.status, `Gemini PDF extraction failed: ${response.status}`);
+
+  const data = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("\n").trim() ?? "";
+}
+
+// ---- 자료 기반 멀티턴 Q&A ----
+export interface GeminiChatTurn {
+  role: "user" | "model";
+  parts: Array<{ text: string }>;
+}
+
+export async function answerFromMaterial(
+  materialContent: string,
+  question: string,
+  history: GeminiChatTurn[]
+): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const systemInstruction = [
+    "너는 한국어 AI 학습 튜터다.",
+    "아래 [학습 자료]를 근거로만 질문에 답하라.",
+    "자료에 없는 내용은 '자료에 해당 내용이 없습니다'라고 답하라.",
+    "답변은 간결하고 정확하게 한국어로 작성하라.",
+    "",
+    "[학습 자료]",
+    materialContent.slice(0, 20000)
+  ].join("\n");
+
+  // history + 현재 질문을 contents 배열로 구성
+  const contents: GeminiChatTurn[] = [
+    ...history,
+    { role: "user", parts: [{ text: question }] }
+  ];
+
+  const response = await geminiFetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents,
+      generationConfig: { temperature: 0.3, maxOutputTokens: 1024 }
+    })
+  });
+
+  if (!response.ok) throw new GeminiError(response.status, `Gemini chat failed: ${response.status}`);
+
+  const data = (await response.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("\n").trim() ?? "답변을 생성할 수 없습니다.";
 }

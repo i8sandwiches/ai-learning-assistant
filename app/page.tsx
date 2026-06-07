@@ -61,11 +61,16 @@ import {
   AuthProvider,
   CharacterState,
   LearningMaterial,
+  StudyClock,
   StudyNote,
   StudySession,
   Summary,
   TimerType,
+  TimerFav,
+  TimerPreset,
+  TimetableBlock,
   User,
+  UserPreferences,
 } from "@/lib/types";
 import {
   addBasicNote,
@@ -160,6 +165,21 @@ const NOTIFICATIONS = [
 ];
 
 const DEFAULT_CATEGORIES = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
+const DEFAULT_PRESETS: TimerPreset[] = [
+  { id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 },
+  { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 },
+];
+const DEFAULT_TIMER_FAVS: TimerFav[] = [
+  { id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 },
+  { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 },
+];
+const makeDefaultPreferences = (): UserPreferences => ({
+  timetable: {},
+  scheds: {},
+  categories: DEFAULT_CATEGORIES,
+  presets: DEFAULT_PRESETS,
+  timerFavs: DEFAULT_TIMER_FAVS,
+});
 
 const NAV_ITEMS = [
   { id: "overview",   icon: "bar-chart-3",    label: "대시보드" },
@@ -327,61 +347,85 @@ function CategoryField({ categories, value, onChange, onManage, label = "과목"
 /* ============================================================
    SessionClock
    ============================================================ */
-function SessionClock({ sessions = [] }: { sessions?: StudySession[] }) {
+function SessionClock({ userId }: { userId: string }) {
+  // Per-account, DB-synced study clock (follows the account across devices).
   const todayStr = new Date().toISOString().slice(0, 10);
-  const SK = "hak.sessStart." + todayStr;
-  const [startMs] = useState(() => {
-    if (typeof window === "undefined") return Date.now();
-    const v = localStorage.getItem(SK);
-    if (v) return parseInt(v, 10);
-    const t = Date.now();
-    localStorage.setItem(SK, String(t));
-    return t;
-  });
+  const [startMs, setStartMs] = useState<number | null>(null);
+  const [accBase, setAccBase] = useState(0);
   const [, setTick] = useState(0);
+  const savedHourRef = useRef<number>(-1);
+
+  const persist = (start: number, acc: number, todayKRW: number) => {
+    void fetch("/api/study-clock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, date: todayStr, startMs: start, accKRW: acc, todayKRW }),
+    }).catch(() => {});
+  };
+
+  // Load the account's clock from the DB (per-account, cross-device).
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      let resolvedStart = Date.now();
+      let resolvedAcc = 0;
+      try {
+        const res = await fetch(`/api/study-clock?userId=${encodeURIComponent(userId)}`);
+        if (res.ok) {
+          const { clock } = (await res.json()) as { clock: StudyClock | null };
+          if (clock) {
+            if (clock.date === todayStr) {
+              resolvedStart = clock.startMs;
+              resolvedAcc = clock.accKRW;
+            } else {
+              // New day: fold the previous day's value into the accumulated total.
+              resolvedAcc = clock.accKRW + (clock.todayKRW || 0);
+              resolvedStart = Date.now();
+            }
+          }
+        }
+      } catch {
+        // offline — start a fresh local baseline; will sync on next success.
+      }
+      if (cancelled) return;
+      savedHourRef.current = Math.floor((Date.now() - resolvedStart) / 3600000);
+      setStartMs(resolvedStart);
+      setAccBase(resolvedAcc);
+      persist(resolvedStart, resolvedAcc, savedHourRef.current * MIN_WAGE);
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [userId, todayStr]);
+
   useEffect(() => {
     const id = setInterval(() => setTick(n => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
 
-  /* 누적가치 — 회원가입 이후 계속 누적. 로그인/로그아웃·날짜 변경에도 초기화되지 않음. */
-  const [acc, setAcc] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    const existing = localStorage.getItem("hak.accKRW");
-    if (existing != null) return parseInt(existing, 10) || 0;
-    const totalMin = sessions.reduce((a, s) => a + s.durationMinutes, 0);
-    const seed = Math.floor(totalMin / 60) * MIN_WAGE;
-    localStorage.setItem("hak.accKRW", String(seed));
-    return seed;
-  });
-
-  const elapsedMs = Date.now() - startMs;
+  const elapsedMs = startMs != null ? Date.now() - startMs : 0;
   const totalSec = Math.floor(elapsedMs / 1000);
   const hh = Math.floor(totalSec / 3600);
   const mm = Math.floor((totalSec % 3600) / 60);
   const ss = totalSec % 60;
   const timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   const todayValue = Math.floor(elapsedMs / 3600000) * MIN_WAGE;
+  const totalAcc = accBase + todayValue;
 
-  /* 오늘 늘어난 만큼만 누적에 합산 (중복 합산 방지) — 단일 키로 저장 */
+  // Checkpoint to the DB when the hour (and thus today's value) advances.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const meta = (() => { try { return JSON.parse(localStorage.getItem("hak.accCreditedToday") || "{}"); } catch { return {}; } })();
-    const credited = meta.date === todayStr ? (meta.value || 0) : 0;
-    if (todayValue > credited) {
-      const base = parseInt(localStorage.getItem("hak.accKRW") || "0", 10);
-      const next = base + (todayValue - credited);
-      localStorage.setItem("hak.accKRW", String(next));
-      localStorage.setItem("hak.accCreditedToday", JSON.stringify({ date: todayStr, value: todayValue }));
-      setAcc(next);
+    if (startMs == null) return;
+    const hours = Math.floor(elapsedMs / 3600000);
+    if (hours !== savedHourRef.current) {
+      savedHourRef.current = hours;
+      persist(startMs, accBase, hours * MIN_WAGE);
     }
-  }, [todayValue, todayStr]);
+  });
 
   return (
     <div className="session-clock">
       <div className="sc-timer">{timeStr}</div>
       <div className="sc-value">오늘 학습가치 <strong>{todayValue > 0 ? todayValue.toLocaleString("ko-KR") + "원" : "집계 중"}</strong></div>
-      <div className="sc-acc">누적 {acc.toLocaleString("ko-KR")}원</div>
+      <div className="sc-acc">누적 {totalAcc.toLocaleString("ko-KR")}원</div>
     </div>
   );
 }
@@ -809,15 +853,15 @@ function CalDayCell({ day, isToday, isSel, hasSession, scheds, onClick }: {
 /* ============================================================
    CalendarWidget
    ============================================================ */
-function CalendarWidget({ sessions }: { sessions: StudySession[] }) {
+function CalendarWidget({ sessions, schedules, setScheds }: {
+  sessions: StudySession[];
+  schedules: Record<string, Sched[]>;
+  setScheds: React.Dispatch<React.SetStateAction<Record<string, Sched[]>>>;
+}) {
   const [cal, setCal] = useState(() => new Date());
   const [selDay, setSelDay] = useState<string | null>(null);
-  const [schedules, setScheds] = useState<Record<string, Sched[]>>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.scheds") || "{}"); } catch { return {}; }
-  });
   const [newText, setNewText] = useState("");
   const [newColor, setNewColor] = useState(SCHED_COLORS[4]);
-  useEffect(() => { try { localStorage.setItem("hak.scheds", JSON.stringify(schedules)); } catch {} }, [schedules]);
 
   const year = cal.getFullYear(), month = cal.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -1018,12 +1062,14 @@ function ActivityHeatmap({ sessions }: { sessions: StudySession[] }) {
    Overview
    ============================================================ */
 function Overview({
-  character, sessions, anki, onGoAnki
+  character, sessions, anki, onGoAnki, schedules, setScheds
 }: {
   character: ReturnType<typeof calculateCharacter>;
   sessions: StudySession[];
   anki: AnkiState;
   onGoAnki: () => void;
+  schedules: Record<string, Sched[]>;
+  setScheds: React.Dispatch<React.SetStateAction<Record<string, Sched[]>>>;
 }) {
   const total = sessions.reduce((a, s) => a + s.durationMinutes, 0);
   const todayKey2 = new Date().toISOString().slice(0, 10);
@@ -1042,7 +1088,7 @@ function Overview({
   return (
     <div className="overview-grid">
       <div className="overview-main">
-        <CalendarWidget sessions={sessions} />
+        <CalendarWidget sessions={sessions} schedules={schedules} setScheds={setScheds} />
       </div>
       <aside className="rail">
         <CharacterCard character={character} />
@@ -1245,7 +1291,7 @@ function MaterialsView({
           <strong>파일 선택</strong>
           <span>{uploadStatus}</span>
           <span className="upload-cat-pill">{uploadCat} 카테고리로 저장</span>
-          <input type="file" accept=".pdf,.txt,.md,.csv,.json,.py,.js,.ts,.html" onChange={e => onUpload(e, uploadCat)} />
+          <input type="file" accept=".pdf,.txt,.md" onChange={e => onUpload(e, uploadCat)} />
         </label>
         <div className="list-block-sep" />
         <div className="list-block">
@@ -1751,17 +1797,19 @@ interface TimerCfg {
   pomoRepeat: number; pomoRound: number;
 }
 
-function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, totalSeconds, onSet }: {
+function PomoClock({ kind, label, hms, totalSec, active, running, started, liveSeconds, totalSeconds, onSet }: {
   kind: string; label: string; hms: { m: number; s: number }; totalSec: number;
-  active: boolean; running: boolean; liveSeconds: number; totalSeconds: number;
+  active: boolean; running: boolean; started: boolean; liveSeconds: number; totalSeconds: number;
   onSet: (part: string, val: string, max: number) => void;
 }) {
   const R = 82, C = 2 * Math.PI * R;
-  const showLive = running && active;
+  // Show the live remaining time for the active phase while running OR paused
+  // mid-session, so pausing doesn't revert the face to the configured value.
+  const showLive = active && (running || started);
   const faceSec = showLive ? liveSeconds : totalSec;
   const pct = showLive && totalSeconds > 0 ? Math.min(1, 1 - liveSeconds / totalSeconds) : 0;
   const dash = C * (1 - pct);
-  const editable = !running;
+  const editable = !running && !started;
   const stateCls = running ? (active ? "is-active" : "is-idle") : "";
   return (
     <div className={`pomo-clock ${kind} ${stateCls}`}>
@@ -1789,28 +1837,20 @@ function PomoClock({ kind, label, hms, totalSec, active, running, liveSeconds, t
 }
 
 function TimerView({
-  timerType, seconds, totalSeconds, isRunning, subject, sessions, pomoPhase,
+  timerType, seconds, totalSeconds, isRunning, started, subject, sessions, pomoPhase,
   timerCfg, setTimerCfg, onTypeChange, onSubjectChange, onStart, onPause, onFinish, onReset, onRecordLap, onDeleteSession,
-  categories, onManageCategories,
+  categories, onManageCategories, presets, setPresets, timerFavs, setTimerFavs,
 }: {
-  timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean;
+  timerType: TimerType; seconds: number; totalSeconds: number; isRunning: boolean; started: boolean;
   subject: string; sessions: StudySession[]; pomoPhase: string;
   timerCfg: TimerCfg; setTimerCfg: React.Dispatch<React.SetStateAction<TimerCfg>>;
   onTypeChange: (t: TimerType) => void; onSubjectChange: (s: string) => void;
   onStart: () => void; onPause: () => void; onFinish: () => void; onReset: () => void;
   onRecordLap: () => void; onDeleteSession: (ids: string[]) => void;
   categories: string[]; onManageCategories: () => void;
+  presets: TimerPreset[]; setPresets: React.Dispatch<React.SetStateAction<TimerPreset[]>>;
+  timerFavs: TimerFav[]; setTimerFavs: React.Dispatch<React.SetStateAction<TimerFav[]>>;
 }) {
-  const [presets, setPresets] = useState<{ id: string; name: string; study: number; brk: number; repeat: number }[]>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.presets") || "null") || [{ id: "p1", name: "기본 25/5", study: 25, brk: 5, repeat: 4 }, { id: "p2", name: "딥워크 50/10", study: 50, brk: 10, repeat: 3 }]; }
-    catch { return []; }
-  });
-  const [timerFavs, setTimerFavs] = useState<{ id: string; name: string; h: number; m: number; s: number }[]>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.timerFavs") || "null") || [{ id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 }, { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 }]; }
-    catch { return []; }
-  });
-  useEffect(() => { try { localStorage.setItem("hak.presets", JSON.stringify(presets)); } catch {} }, [presets]);
-  useEffect(() => { try { localStorage.setItem("hak.timerFavs", JSON.stringify(timerFavs)); } catch {} }, [timerFavs]);
 
   const secToHMS = (t: number) => ({ h: Math.floor(t / 3600), m: Math.floor(t % 3600 / 60), s: t % 60 });
   const pomoStudyHMS = secToHMS(timerCfg.pomoStudySec || 0);
@@ -1851,7 +1891,7 @@ function TimerView({
   const R = 110, C = 2 * Math.PI * R;
   const pct = totalSeconds > 0 ? Math.min(1, 1 - seconds / totalSeconds) : 0;
   const dashOffset = C * (1 - pct);
-  const editableTimer = timerType === "TIMER" && !isRunning;
+  const editableTimer = timerType === "TIMER" && !isRunning && !started;
 
   return (
     <div className="timer-layout view-enter">
@@ -1873,11 +1913,11 @@ function TimerView({
               </div>
               <div className="pomo-clocks-row">
                 <PomoClock kind="study" label="학습시간" hms={pomoStudyHMS} totalSec={timerCfg.pomoStudySec}
-                  active={pomoPhase === "study"} running={isRunning} liveSeconds={seconds} totalSeconds={totalSeconds}
+                  active={pomoPhase === "study"} running={isRunning} started={started} liveSeconds={seconds} totalSeconds={totalSeconds}
                   onSet={(p, v, mx) => setPomoHMS("pomoStudySec", p, v, mx)} />
                 <div className="pomo-cycle"><div className="pomo-divider" /></div>
                 <PomoClock kind="break" label="휴게시간" hms={pomoBreakHMS} totalSec={timerCfg.pomoBreakSec}
-                  active={pomoPhase === "break"} running={isRunning} liveSeconds={seconds} totalSeconds={totalSeconds}
+                  active={pomoPhase === "break"} running={isRunning} started={started} liveSeconds={seconds} totalSeconds={totalSeconds}
                   onSet={(p, v, mx) => setPomoHMS("pomoBreakSec", p, v, mx)} />
               </div>
             </div>
@@ -2060,14 +2100,13 @@ function StatsView({ sessions, categories }: { sessions: StudySession[]; categor
 /* ============================================================
    TimetableView
    ============================================================ */
-function TimetableView() {
+function TimetableView({ blocks, setBlocks }: {
+  blocks: Record<string, TimetableBlock>;
+  setBlocks: React.Dispatch<React.SetStateAction<Record<string, TimetableBlock>>>;
+}) {
   const DAYS = ["월","화","수","목","금","토","일"];
   const HOURS = Array.from({ length: 17 }, (_, i) => i + 7);
   const COLORS = ["#e0533a","#e8902f","#d9b008","#3fa45b","#3b78d9","#9a59c2"];
-  const [blocks, setBlocks] = useState<Record<string, { label: string; color: string }>>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.timetable") || "{}"); } catch { return {}; }
-  });
-  useEffect(() => { try { localStorage.setItem("hak.timetable", JSON.stringify(blocks)); } catch {} }, [blocks]);
   const [editing, setEditing] = useState<{ d: number; h: number; k: string; isNew: boolean } | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [editColor, setEditColor] = useState(COLORS[3]);
@@ -3124,12 +3163,15 @@ export default function Home() {
   const [noteDraft, setNoteDraft] = useState({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [uploadStatus, setUploadStatus] = useState("파일을 선택해 폴더에 자료를 업로드하세요.");
-  // Categories — shared across timer, notes, materials, anki
-  const [categories, setCategories] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("hak.categories") || "null") || DEFAULT_CATEGORIES; } catch { return DEFAULT_CATEGORIES; }
-  });
+  // User preferences (timetable, calendar, categories, timer presets) — synced per-user via DB.
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
+  const [timetable, setTimetable] = useState<Record<string, TimetableBlock>>({});
+  const [scheds, setScheds] = useState<Record<string, Sched[]>>({});
+  const [presets, setPresets] = useState<TimerPreset[]>(DEFAULT_PRESETS);
+  const [timerFavs, setTimerFavs] = useState<TimerFav[]>(DEFAULT_TIMER_FAVS);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [prefsUserId, setPrefsUserId] = useState<string | null>(null);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
-  useEffect(() => { try { localStorage.setItem("hak.categories", JSON.stringify(categories)); } catch {} }, [categories]);
 
   // Favorites (pinned) — persisted
   const [pinnedNotes, setPinnedNotes] = useState<string[]>(() => {
@@ -3250,6 +3292,20 @@ export default function Home() {
     saveAnkiToStorage(anki, currentUser.userId);
   }, [anki, ankiLoaded, ankiUserId, currentUser?.userId]);
 
+  // Persist preferences (timetable, calendar, categories, timer presets) to the DB so
+  // they sync across devices. Debounced; only after the current user's prefs have loaded.
+  useEffect(() => {
+    if (!prefsLoaded || !currentUser || prefsUserId !== currentUser.userId) return;
+    const handle = window.setTimeout(() => {
+      void persistStore({
+        operation: "savePreferences",
+        userId: currentUser.userId,
+        preferences: { timetable, scheds, categories, presets, timerFavs },
+      });
+    }, 600);
+    return () => window.clearTimeout(handle);
+  }, [timetable, scheds, categories, presets, timerFavs, prefsLoaded, prefsUserId, currentUser?.userId]);
+
   useEffect(() => {
     if (!isRunning) return;
     const interval = window.setInterval(() => {
@@ -3261,6 +3317,9 @@ export default function Home() {
   /* sync seconds/totalSeconds when cfg changes while idle */
   useEffect(() => {
     if (isRunning) return;
+    // Mid-session pause (started, not yet reset/finished): keep the remaining
+    // time so pausing doesn't reset the countdown.
+    if (timerStartRef.current) return;
     if (timerType === "TIMER") {
       const s = Math.max(1, (timerCfg.timerH || 0) * 3600 + (timerCfg.timerM || 0) * 60 + (timerCfg.timerS || 0));
       setSeconds(s); setTotalSeconds(s);
@@ -3339,18 +3398,34 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      // Reset preferences to defaults on logout so the next account starts clean.
+      setTimetable({}); setScheds({}); setCategories(DEFAULT_CATEGORIES);
+      setPresets(DEFAULT_PRESETS); setTimerFavs(DEFAULT_TIMER_FAVS);
+      setPrefsLoaded(false); setPrefsUserId(null);
+      return;
+    }
     let cancelled = false;
+    setPrefsLoaded(false);
     async function loadRemoteState() {
+      const userId = currentUser!.userId;
       try {
-        const response = await fetch(`/api/store?userId=${encodeURIComponent(currentUser!.userId)}`);
+        const response = await fetch(`/api/store?userId=${encodeURIComponent(userId)}`);
         if (!response.ok) throw new Error("Remote state request failed");
-        const data = (await response.json()) as Omit<AppState, "user">;
-        if (!cancelled) {
-          setState(prev => prev.user?.userId === currentUser!.userId ? { ...prev, ...data } : prev);
-        }
+        const data = (await response.json()) as Omit<AppState, "user"> & { preferences: UserPreferences | null };
+        if (cancelled) return;
+        const { preferences, ...appData } = data;
+        setState(prev => prev.user?.userId === userId ? { ...prev, ...appData } : prev);
+        const defaults = makeDefaultPreferences();
+        setTimetable(preferences?.timetable ?? defaults.timetable);
+        setScheds(preferences?.scheds ?? defaults.scheds);
+        setCategories(preferences?.categories ?? defaults.categories);
+        setPresets(preferences?.presets ?? defaults.presets);
+        setTimerFavs(preferences?.timerFavs ?? defaults.timerFavs);
+        setPrefsUserId(userId);
+        setPrefsLoaded(true);
       } catch {
-        // connection failed — swallow silently
+        // connection failed — keep current in-memory prefs, but don't persist stale data.
       }
     }
     void loadRemoteState();
@@ -3505,22 +3580,30 @@ export default function Home() {
   async function handleUpload(event: ChangeEvent<HTMLInputElement>, category: string) {
     const file = event.target.files?.[0];
     if (!file || !currentUser) return;
-    const ext = (file.name.split(".").pop() || "").toUpperCase();
-    const textLike = /\.(txt|md|csv|json|py|js|ts|html)$/i.test(file.name);
-    let extractedText = "";
-    try { extractedText = textLike ? await file.text() : `${ext} 학습 자료: ${file.name}.`; }
-    catch { extractedText = `${ext} 학습 자료: ${file.name}.`; }
     const cat = category || categories[0] || "기타";
-    const material: LearningMaterial = {
-      materialId: createId("material"), userId: currentUser.userId, fileName: file.name,
-      fileType: (ext || "FILE") as LearningMaterial["fileType"], extractedText,
-      uploadedAt: new Date().toISOString(), category: cat,
-    };
-    setState(prev => ({ ...prev, materials: [material, ...prev.materials] }));
-    setUploadStatus(`'${file.name}' 자료를 ${cat} 폴더에 저장했습니다.`);
-    void persistStore({ operation: "saveMaterial", userId: currentUser.userId, material });
-    pushToast(`'${cat}' 폴더에 자료를 업로드했어요`, { icon: "upload-cloud" });
-    event.target.value = "";
+    setUploadStatus("파일을 업로드하고 텍스트를 추출하는 중입니다.");
+    try {
+      // Upload via the server so real text (incl. PDF) is extracted and stored in the DB.
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("userId", currentUser.userId);
+      const uploadRes = await fetch("/api/materials/upload", { method: "POST", body: formData });
+      if (!uploadRes.ok) {
+        const err = (await uploadRes.json().catch(() => ({}))) as { error?: string };
+        setUploadStatus(err.error || "업로드에 실패했습니다.");
+        return;
+      }
+      const { material } = (await uploadRes.json()) as { material: LearningMaterial };
+      // 폴더 저장만 — AI 요약은 자료별 "AI 요약" 버튼에서 생성합니다.
+      const withCat: LearningMaterial = { ...material, category: cat };
+      setState(prev => ({ ...prev, materials: [withCat, ...prev.materials] }));
+      setUploadStatus(`'${material.fileName}' 자료를 ${cat} 폴더에 저장했습니다.`);
+      pushToast(`'${cat}' 폴더에 자료를 업로드했어요`, { icon: "upload-cloud" });
+    } catch {
+      setUploadStatus("업로드 중 오류가 발생했습니다.");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   async function requestSummary(title: string, content: string) {
@@ -3825,7 +3908,7 @@ export default function Home() {
               <div className="title-wrap">
                 <p className="eyebrow">Personal learning dashboard</p>
                 <h1 className="page-title">학습 대시보드</h1>
-                <SessionClock sessions={userSessions} />
+                <SessionClock userId={currentUser.userId} />
               </div>
               <ActivityHeatmap sessions={userSessions} />
             </header>
@@ -3834,6 +3917,8 @@ export default function Home() {
               sessions={userSessions}
               anki={anki}
               onGoAnki={() => { setActiveTab("anki"); startReview(ankiDeckId); }}
+              schedules={scheds}
+              setScheds={setScheds}
             />
           </>
         ) : (
@@ -3884,16 +3969,18 @@ export default function Home() {
         {activeTab === "timer" && (
           <TimerView
             timerType={timerType} seconds={seconds} totalSeconds={totalSeconds} isRunning={isRunning}
+            started={timerStartRef.current !== null}
             subject={timerSubject} sessions={userSessions} pomoPhase={pomoPhase}
             timerCfg={timerCfg} setTimerCfg={setTimerCfg}
             onTypeChange={switchTimerType} onSubjectChange={setTimerSubject}
             onStart={startTimer} onPause={pauseTimer} onFinish={finishTimer} onReset={resetTimer}
             onRecordLap={recordLap} onDeleteSession={() => {}}
             categories={categories} onManageCategories={() => setCatManagerOpen(true)}
+            presets={presets} setPresets={setPresets} timerFavs={timerFavs} setTimerFavs={setTimerFavs}
           />
         )}
 
-        {activeTab === "timetable" && <TimetableView />}
+        {activeTab === "timetable" && <TimetableView blocks={timetable} setBlocks={setTimetable} />}
 
         {activeTab === "stats" && <StatsView sessions={userSessions} categories={categories} />}
 
