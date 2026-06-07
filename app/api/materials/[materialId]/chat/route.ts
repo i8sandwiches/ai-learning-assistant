@@ -7,7 +7,7 @@ import {
   getOrCreateChatSession
 } from "@/lib/dbCollections";
 import { getAppDb } from "@/lib/mongodb";
-import { ChatMessage, LearningMaterial } from "@/lib/types";
+import { ChatMessage, LearningMaterial, StudyNote } from "@/lib/types";
 
 export async function GET(
   request: Request,
@@ -30,7 +30,7 @@ export async function POST(
 ) {
   const { materialId } = await params;
 
-  const body = (await request.json()) as { question?: string; userId?: string };
+  const body = (await request.json()) as { question?: string; userId?: string; sourceType?: "material" | "note" };
   const userId = body.userId?.trim();
   if (!userId) {
     return NextResponse.json({ error: "userId가 필요합니다." }, { status: 400 });
@@ -39,17 +39,29 @@ export async function POST(
   if (!question) {
     return NextResponse.json({ error: "질문이 비어 있습니다." }, { status: 400 });
   }
+  const sourceType = body.sourceType === "note" ? "note" : "material";
 
   await ensureIndexes();
   const db = await getAppDb();
 
-  // 자료 조회 및 소유권 확인
-  const material = await db
-    .collection<LearningMaterial>(collectionNames.materials)
-    .findOne({ materialId, userId });
-
-  if (!material) {
-    return NextResponse.json({ error: "자료를 찾을 수 없습니다." }, { status: 404 });
+  // 소스 조회 및 소유권 확인 (자료 또는 학습 노트)
+  let sourceContent: string;
+  if (sourceType === "note") {
+    const note = await db
+      .collection<StudyNote>(collectionNames.notes)
+      .findOne({ noteId: materialId, userId });
+    if (!note) {
+      return NextResponse.json({ error: "노트를 찾을 수 없습니다." }, { status: 404 });
+    }
+    sourceContent = `${note.title}\n\n${note.markdownContent}`;
+  } else {
+    const material = await db
+      .collection<LearningMaterial>(collectionNames.materials)
+      .findOne({ materialId, userId });
+    if (!material) {
+      return NextResponse.json({ error: "자료를 찾을 수 없습니다." }, { status: 404 });
+    }
+    sourceContent = material.extractedText;
   }
 
   // 기존 대화 세션 불러오기 (없으면 생성)
@@ -65,7 +77,7 @@ export async function POST(
   // AI 응답 생성
   let answer: string;
   try {
-    answer = await answerFromMaterial(material.extractedText, question, history);
+    answer = await answerFromMaterial(sourceContent, question, history);
   } catch (e) {
     console.error("Gemini 오류:", e);
     return NextResponse.json({ error: "AI 응답 생성 중 오류가 발생했습니다." }, { status: 500 });

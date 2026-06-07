@@ -834,9 +834,11 @@ function SessionList({ sessions }: { sessions: StudySession[] }) {
 }
 
 /* ============================================================
-   MaterialChatPanel
+   SourceChatPanel — AI Q&A grounded in a single source (material or note)
    ============================================================ */
-function MaterialChatPanel({ material, userId, onClose }: { material: LearningMaterial; userId: string; onClose: () => void }) {
+type QnASource = { id: string; title: string; type: "material" | "note" };
+
+function SourceChatPanel({ source, userId, onClose }: { source: QnASource; userId: string; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -847,7 +849,7 @@ function MaterialChatPanel({ material, userId, onClose }: { material: LearningMa
     let cancelled = false;
     async function fetchHistory() {
       try {
-        const res = await fetch(`/api/materials/${material.materialId}/chat?userId=${encodeURIComponent(userId)}`);
+        const res = await fetch(`/api/materials/${source.id}/chat?userId=${encodeURIComponent(userId)}&sourceType=${source.type}`);
         if (!res.ok) throw new Error();
         const data = (await res.json()) as { messages: ChatMessage[] };
         if (!cancelled) setMessages(data.messages);
@@ -859,7 +861,7 @@ function MaterialChatPanel({ material, userId, onClose }: { material: LearningMa
     }
     void fetchHistory();
     return () => { cancelled = true; };
-  }, [material.materialId, userId]);
+  }, [source.id, source.type, userId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -874,10 +876,10 @@ function MaterialChatPanel({ material, userId, onClose }: { material: LearningMa
     const userMsg: ChatMessage = { role: "user", content: question, createdAt: new Date().toISOString() };
     setMessages(prev => [...prev, userMsg]);
     try {
-      const res = await fetch(`/api/materials/${material.materialId}/chat`, {
+      const res = await fetch(`/api/materials/${source.id}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, userId }),
+        body: JSON.stringify({ question, userId, sourceType: source.type }),
       });
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { answer: string };
@@ -896,8 +898,8 @@ function MaterialChatPanel({ material, userId, onClose }: { material: LearningMa
       <div className="mat-chat-header">
         <button className="icon-button" onClick={onClose} aria-label="채팅 닫기"><ChevronLeft size={17} /></button>
         <div className="mat-chat-header-info">
-          <strong>{material.fileName}</strong>
-          <span>자료 AI Q&amp;A</span>
+          <strong>{source.title}</strong>
+          <span>{source.type === "note" ? "노트 AI Q&A" : "자료 AI Q&A"}</span>
         </div>
       </div>
 
@@ -905,7 +907,7 @@ function MaterialChatPanel({ material, userId, onClose }: { material: LearningMa
         {initializing ? (
           <p className="empty-text">대화 기록을 불러오는 중...</p>
         ) : messages.length === 0 ? (
-          <p className="empty-text">자료에 대해 궁금한 점을 질문해 보세요.</p>
+          <p className="empty-text">{source.type === "note" ? "노트" : "자료"}에 대해 궁금한 점을 질문해 보세요.</p>
         ) : (
           messages.map((m, i) => (
             <div key={i} className={`chat-bubble ${m.role === "user" ? "chat-bubble-user" : "chat-bubble-ai"}`}>
@@ -942,52 +944,65 @@ function MaterialChatPanel({ material, userId, onClose }: { material: LearningMa
 }
 
 /* ============================================================
-   QnAView — dedicated AI Q&A space (pick a material, then chat)
+   QnAView — dedicated AI Q&A space (pick a material or note, then chat)
    ============================================================ */
-function QnAView({ materials, userId }: { materials: LearningMaterial[]; userId: string }) {
-  const [selectedId, setSelectedId] = useState<string | null>(materials[0]?.materialId ?? null);
+function QnAView({ materials, notes, userId }: { materials: LearningMaterial[]; notes: StudyNote[]; userId: string }) {
+  const sources: QnASource[] = useMemo(() => [
+    ...materials.map(m => ({ id: m.materialId, title: m.fileName, type: "material" as const })),
+    ...notes.map(n => ({ id: n.noteId, title: n.title, type: "note" as const })),
+  ], [materials, notes]);
+
+  const [selectedId, setSelectedId] = useState<string | null>(sources[0]?.id ?? null);
 
   useEffect(() => {
-    if (selectedId && !materials.some(m => m.materialId === selectedId)) {
-      setSelectedId(materials[0]?.materialId ?? null);
+    if (selectedId && !sources.some(s => s.id === selectedId)) {
+      setSelectedId(sources[0]?.id ?? null);
     }
-  }, [materials, selectedId]);
+  }, [sources, selectedId]);
 
-  const selected = materials.find(m => m.materialId === selectedId) ?? null;
+  const selected = sources.find(s => s.id === selectedId) ?? null;
+
+  const renderRow = (s: QnASource) => (
+    <div
+      key={s.id}
+      className={`list-row mat-row ${selectedId === s.id ? "is-selected" : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => setSelectedId(s.id)}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(s.id); } }}
+    >
+      {s.type === "note" ? <BookOpenText size={17} /> : <UploadCloud size={17} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <strong>{s.title}</strong>
+        <span>{s.type === "note" ? "학습 노트" : "업로드 자료"}</span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="two-column view-enter">
       <section className="panel">
         <div className="section-heading">
-          <h3>자료 선택</h3>
-          <span className="sum-count">{materials.length}개</span>
+          <h3>질문할 자료 선택</h3>
+          <span className="sum-count">{sources.length}개</span>
         </div>
-        {materials.length === 0
-          ? <p className="empty-text">먼저 ‘자료/요약’ 탭에서 자료를 업로드하세요.</p>
-          : materials.map(m => (
-            <div
-              key={m.materialId}
-              className={`list-row mat-row ${selectedId === m.materialId ? "is-selected" : ""}`}
-              role="button"
-              tabIndex={0}
-              onClick={() => setSelectedId(m.materialId)}
-              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(m.materialId); } }}
-            >
-              <UploadCloud size={17} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <strong>{m.fileName}</strong>
-                <span>{m.fileType} · {new Date(m.uploadedAt).toLocaleString("ko-KR")}</span>
-              </div>
-            </div>
-          ))
-        }
+        {sources.length === 0 ? (
+          <p className="empty-text">‘자료/요약’ 탭에서 자료를 올리거나 ‘학습 노트’를 작성하면 질문할 수 있습니다.</p>
+        ) : (
+          <>
+            {materials.length > 0 && <p className="qna-group-label">업로드 자료</p>}
+            {materials.map(m => renderRow({ id: m.materialId, title: m.fileName, type: "material" }))}
+            {notes.length > 0 && <p className="qna-group-label">학습 노트</p>}
+            {notes.map(n => renderRow({ id: n.noteId, title: n.title, type: "note" }))}
+          </>
+        )}
       </section>
 
       {selected ? (
-        <MaterialChatPanel key={selected.materialId} material={selected} userId={userId} onClose={() => setSelectedId(null)} />
+        <SourceChatPanel key={selected.id} source={selected} userId={userId} onClose={() => setSelectedId(null)} />
       ) : (
         <section className="panel">
-          <p className="empty-text">{materials.length === 0 ? "업로드한 자료가 없습니다." : "자료를 선택하면 AI에게 질문할 수 있습니다."}</p>
+          <p className="empty-text">{sources.length === 0 ? "질문할 자료나 노트가 없습니다." : "항목을 선택하면 AI에게 질문할 수 있습니다."}</p>
         </section>
       )}
     </div>
@@ -2928,7 +2943,7 @@ export default function Home() {
           />
         )}
 
-        {activeTab === "qna" && <QnAView materials={userMaterials} userId={currentUser.userId} />}
+        {activeTab === "qna" && <QnAView materials={userMaterials} notes={userNotes} userId={currentUser.userId} />}
 
         {activeTab === "notes" && (
           <NotesView
