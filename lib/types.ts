@@ -29,6 +29,8 @@ export interface Summary {
   title: string;
   content: string;
   sourceType: "material" | "note";
+  category?: string;
+  updatedAt?: string;
   createdAt: string;
 }
 

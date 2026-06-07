@@ -1,19 +1,35 @@
 "use client";
 
 import {
+  ArrowLeft,
   BarChart3,
   Bell,
   BookmarkPlus,
   BookOpenText,
   Bot,
   CalendarDays,
+  Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleDot,
   Clock,
+  Code,
+  Copy,
+  Download,
+  FileText,
   Flame,
+  Folder,
+  FolderInput,
+  FolderPlus,
   LayersIcon,
+  Loader2,
   LogOut,
   Menu,
+  MessageSquare,
+  MoreHorizontal,
+  Paperclip,
   Pause,
   Pencil,
   Pin,
@@ -21,13 +37,19 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Scroll,
+  Send,
+  Settings,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Square,
+  Star,
   TimerReset,
   Trash2,
   UploadCloud,
   X,
+  type LucideProps,
 } from "lucide-react";
 import React, { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { getSession, signIn, signOut } from "next-auth/react";
@@ -37,8 +59,8 @@ import {
   AnkiState,
   AppState,
   AuthProvider,
+  CharacterState,
   LearningMaterial,
-  Quiz,
   StudyNote,
   StudySession,
   Summary,
@@ -63,52 +85,91 @@ import {
   formatMinutes,
   recentDays,
   summarizeLocally,
-  validateUpload,
 } from "@/lib/study";
+
+/* ============================================================
+   Icon — maps prototype string names to lucide-react components
+   ============================================================ */
+const ICONS: Record<string, React.ComponentType<LucideProps>> = {
+  "arrow-left": ArrowLeft, "bar-chart-3": BarChart3, bell: Bell, "bookmark-plus": BookmarkPlus,
+  "book-open-text": BookOpenText, bot: Bot, "calendar-days": CalendarDays, camera: Camera,
+  check: Check, "check-circle-2": CheckCircle2, "chevron-down": ChevronDown, "chevron-right": ChevronRight,
+  "circle-dot": CircleDot, clock: Clock, code: Code, copy: Copy, download: Download, "file-text": FileText,
+  flame: Flame, folder: Folder, "folder-input": FolderInput, "folder-plus": FolderPlus, layers: LayersIcon,
+  loader: Loader2, "loader-2": Loader2, "log-out": LogOut, menu: Menu, "message-square": MessageSquare,
+  "more-horizontal": MoreHorizontal, paperclip: Paperclip, pause: Pause, pencil: Pencil, pin: Pin,
+  play: Play, plus: Plus, "rotate-ccw": RotateCcw, save: Save, scroll: Scroll, send: Send,
+  settings: Settings, "settings-2": Settings2, "shield-check": ShieldCheck, sparkles: Sparkles,
+  square: Square, star: Star, "timer-reset": TimerReset, "trash-2": Trash2, "upload-cloud": UploadCloud, x: X,
+};
+function Icon({ name, size = 16, color, style, className }: {
+  name: string; size?: number; color?: string; style?: React.CSSProperties; className?: string;
+}) {
+  const Cmp = ICONS[name] ?? Square;
+  return <span className={`lucide-host${className ? " " + className : ""}`} style={{ display: "inline-flex", ...style }}><Cmp size={size} color={color} /></span>;
+}
+function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T | undefined>(undefined);
+  useEffect(() => { ref.current = value; });
+  return ref.current;
+}
+
+/* ============================================================
+   Toast host
+   ============================================================ */
+type ToastItem = { id: string; message: string; icon: string; accent: boolean; out?: boolean };
+let _toastPush: ((message: string, opts?: { icon?: string; accent?: boolean }) => void) | null = null;
+function pushToast(message: string, opts: { icon?: string; accent?: boolean } = {}) { _toastPush?.(message, opts); }
+function ToastHost() {
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  useEffect(() => {
+    _toastPush = (message, opts = {}) => {
+      const id = Math.random().toString(36).slice(2);
+      setToasts(t => [...t, { id, message, icon: opts.icon || "check-circle-2", accent: !!opts.accent }]);
+      setTimeout(() => setToasts(t => t.map(x => x.id === id ? { ...x, out: true } : x)), 2600);
+      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2900);
+    };
+    return () => { _toastPush = null; };
+  }, []);
+  return (
+    <div className="toast-host">
+      {toasts.map(t => (
+        <div key={t.id} className={`toast ${t.accent ? "accent" : ""} ${t.out ? "out" : ""}`}>
+          <span className="t-ico"><Icon name={t.icon} size={17} /></span>
+          <span>{t.message}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /* ============================================================
    Constants
    ============================================================ */
 const MIN_WAGE = 10030;
-const SCHED_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6", "#a855f7"];
+const SCHED_COLORS = ["#e0533a", "#e8902f", "#d9b008", "#3fa45b", "#3b78d9", "#9a59c2"];
 const STAT_PALETTE = [
   "oklch(0.70 0.13 200)", "oklch(0.70 0.13 150)", "oklch(0.72 0.13 70)",
   "oklch(0.68 0.14 25)", "oklch(0.66 0.13 285)", "oklch(0.70 0.13 330)",
 ];
-const RANK_COLORS = [
-  "oklch(0.93 0.06 155)",
-  "oklch(0.93 0.07 55)",
-  "oklch(0.93 0.06 240)",
-  "oklch(0.92 0.07 295)",
-  "oklch(0.92 0.08 30)",
-  "oklch(0.88 0.10 70)",
-];
-function rankColorIdx(lv: number) {
-  if (lv <= 2) return 0;
-  if (lv <= 5) return 1;
-  if (lv <= 9) return 2;
-  if (lv <= 12) return 3;
-  if (lv === 13) return 4;
-  return 5;
-}
-
 const NOTIFICATIONS = [
-  { id: "n1", icon: <LayersIcon size={16} />, title: "오늘 복습할 Anki 카드가 기다리고 있어요.", time: "방금 전", unread: true },
-  { id: "n2", icon: <Flame size={16} />, title: "어제 학습으로 연속 출석이 이어졌어요.", time: "어제", unread: true },
-  { id: "n3", icon: <Sparkles size={16} />, title: "루미가 새로운 단계에 도달했어요.", time: "2일 전", unread: false },
-  { id: "n4", icon: <CheckCircle2 size={16} />, title: "지난주 학습 요약 리포트가 준비되었습니다.", time: "3일 전", unread: false },
+  { id: "n1", icon: "layers", title: "오늘 복습할 Anki 카드가 기다리고 있어요.", time: "방금 전", unread: true },
+  { id: "n2", icon: "flame", title: "어제 학습으로 연속 출석이 이어졌어요.", time: "어제", unread: true },
+  { id: "n3", icon: "sparkles", title: "루미가 새로운 단계에 도달했어요.", time: "2일 전", unread: false },
+  { id: "n4", icon: "check-circle-2", title: "지난주 학습 요약 리포트가 준비되었습니다.", time: "3일 전", unread: false },
 ];
 
 const DEFAULT_CATEGORIES = ["국어", "영어", "수학", "과학", "사회", "전공", "자격증", "기타"];
 
 const NAV_ITEMS = [
-  { id: "overview",   icon: <BarChart3 size={18} />,     label: "대시보드" },
-  { id: "timetable",  icon: <CalendarDays size={18} />,  label: "시간표" },
-  { id: "timer",      icon: <Clock size={18} />,         label: "포모도로" },
-  { id: "notes",      icon: <BookOpenText size={18} />,  label: "학습 노트" },
-  { id: "materials",  icon: <UploadCloud size={18} />,   label: "자료/요약" },
-  { id: "anki",       icon: <LayersIcon size={18} />,    label: "Anki" },
-  { id: "stats",      icon: <Flame size={18} />,         label: "통계" },
+  { id: "overview",   icon: "bar-chart-3",    label: "대시보드" },
+  { id: "timetable",  icon: "calendar-days",  label: "시간표" },
+  { id: "timer",      icon: "clock",          label: "포모도로" },
+  { id: "notes",      icon: "book-open-text", label: "학습 노트" },
+  { id: "materials",  icon: "upload-cloud",   label: "자료/요약" },
+  { id: "tutor",      icon: "bot",            label: "AI 튜터" },
+  { id: "anki",       icon: "layers",         label: "Anki" },
+  { id: "stats",      icon: "flame",          label: "통계" },
 ] as const;
 
 const TAB_TITLES: Record<string, string> = {
@@ -116,12 +177,13 @@ const TAB_TITLES: Record<string, string> = {
   timetable: "시간표",
   materials: "자료 / 요약",
   notes: "학습 노트",
+  tutor: "AI 튜터",
   anki: "Anki 스케줄러",
   timer: "포모도로",
   stats: "학습 통계",
 };
 
-type TabId = "overview" | "timetable" | "materials" | "notes" | "timer" | "stats" | "anki";
+type TabId = "overview" | "timetable" | "materials" | "notes" | "tutor" | "timer" | "stats" | "anki";
 type HeatView = "year" | "month" | "week";
 type SessionUser = {
   email?: string | null;
@@ -231,14 +293,32 @@ function CategoryField({ categories, value, onChange, onManage, label = "과목"
   categories: string[]; value: string; onChange: (v: string) => void;
   onManage: () => void; label?: string; style?: React.CSSProperties;
 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const allOpts = [...categories, ...(value && !categories.includes(value) ? [value] : [])];
   return (
-    <div className="cat-field" style={style}>
-      <select value={value} onChange={e => onChange(e.target.value)} aria-label={label}>
-        {categories.map(c => <option key={c} value={c}>{c}</option>)}
-        {value && !categories.includes(value) && <option value={value}>{value}</option>}
-      </select>
+    <div className="cat-field" style={style} ref={wrapRef}>
+      <div className="cat-field-select-wrap note-ctx-wrap">
+        <button type="button" className="cat-field-btn" aria-label={label} aria-expanded={open} onClick={() => setOpen(o => !o)}>
+          <span>{value || allOpts[0] || label}</span>
+          <Icon name="chevron-down" size={11} style={{ transition: "transform .15s", transform: open ? "rotate(180deg)" : "none", flexShrink: 0 }} />
+        </button>
+        {open && (
+          <div className="note-ctx-menu cat-field-menu">
+            {allOpts.map(c => (
+              <button key={c} className={c === value ? "is-active" : ""} onClick={() => { onChange(c); setOpen(false); }}>{c}</button>
+            ))}
+          </div>
+        )}
+      </div>
       <button type="button" className="cat-manage-btn" title="카테고리 관리" aria-label="카테고리 관리" onClick={onManage}>
-        <Settings2 size={15} />
+        <Icon name="settings-2" size={15} />
       </button>
     </div>
   );
@@ -247,10 +327,9 @@ function CategoryField({ categories, value, onChange, onManage, label = "과목"
 /* ============================================================
    SessionClock
    ============================================================ */
-function SessionClock() {
+function SessionClock({ sessions = [] }: { sessions?: StudySession[] }) {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const SK = "studyapp.sessStart." + todayStr;
-  const AK = "studyapp.accKRW";
+  const SK = "hak.sessStart." + todayStr;
   const [startMs] = useState(() => {
     if (typeof window === "undefined") return Date.now();
     const v = localStorage.getItem(SK);
@@ -264,6 +343,18 @@ function SessionClock() {
     const id = setInterval(() => setTick(n => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
+
+  /* 누적가치 — 회원가입 이후 계속 누적. 로그인/로그아웃·날짜 변경에도 초기화되지 않음. */
+  const [acc, setAcc] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    const existing = localStorage.getItem("hak.accKRW");
+    if (existing != null) return parseInt(existing, 10) || 0;
+    const totalMin = sessions.reduce((a, s) => a + s.durationMinutes, 0);
+    const seed = Math.floor(totalMin / 60) * MIN_WAGE;
+    localStorage.setItem("hak.accKRW", String(seed));
+    return seed;
+  });
+
   const elapsedMs = Date.now() - startMs;
   const totalSec = Math.floor(elapsedMs / 1000);
   const hh = Math.floor(totalSec / 3600);
@@ -271,13 +362,151 @@ function SessionClock() {
   const ss = totalSec % 60;
   const timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   const todayValue = Math.floor(elapsedMs / 3600000) * MIN_WAGE;
-  const accBase = typeof window !== "undefined" ? parseInt(localStorage.getItem(AK) || "0", 10) : 0;
-  const totalAcc = accBase + todayValue;
+
+  /* 오늘 늘어난 만큼만 누적에 합산 (중복 합산 방지) — 단일 키로 저장 */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const meta = (() => { try { return JSON.parse(localStorage.getItem("hak.accCreditedToday") || "{}"); } catch { return {}; } })();
+    const credited = meta.date === todayStr ? (meta.value || 0) : 0;
+    if (todayValue > credited) {
+      const base = parseInt(localStorage.getItem("hak.accKRW") || "0", 10);
+      const next = base + (todayValue - credited);
+      localStorage.setItem("hak.accKRW", String(next));
+      localStorage.setItem("hak.accCreditedToday", JSON.stringify({ date: todayStr, value: todayValue }));
+      setAcc(next);
+    }
+  }, [todayValue, todayStr]);
+
   return (
     <div className="session-clock">
       <div className="sc-timer">{timeStr}</div>
       <div className="sc-value">오늘 학습가치 <strong>{todayValue > 0 ? todayValue.toLocaleString("ko-KR") + "원" : "집계 중"}</strong></div>
-      <div className="sc-acc">누적 {totalAcc.toLocaleString("ko-KR")}원</div>
+      <div className="sc-acc">누적 {acc.toLocaleString("ko-KR")}원</div>
+    </div>
+  );
+}
+
+/* ============================================================
+   NotifyButton
+   ============================================================ */
+function NotifyButton() {
+  const [open, setOpen] = useState(false);
+  const [notes, setNotes] = useState(NOTIFICATIONS);
+  const unread = notes.filter(n => n.unread).length;
+  return (
+    <div className="notify-wrap">
+      <button className="topbar-icon-btn" aria-label="알림" title="알림" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        <Icon name="bell" size={18} />{unread > 0 && <span className="notify-dot notify-count">{unread}</span>}
+      </button>
+      {open && <>
+        <div className="notify-scrim" onClick={() => setOpen(false)} />
+        <div className="notify-panel" role="dialog" aria-label="알림">
+          <div className="notify-head">
+            <span className="notify-title">알림{unread > 0 ? ` · ${unread}` : ""}</span>
+            <button className="notify-readall" onClick={() => setNotes(ns => ns.map(n => ({ ...n, unread: false })))} disabled={unread === 0}>모두 읽음</button>
+          </div>
+          <ul className="notify-list">
+            {notes.map(n => (
+              <li key={n.id} className={`notify-item ${n.unread ? "is-unread" : ""}`}>
+                <span className="notify-ico"><Icon name={n.icon} size={16} /></span>
+                <div className="notify-body"><p className="notify-text">{n.title}</p><span className="notify-time">{n.time}</span></div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+/* ============================================================
+   AccountManager
+   ============================================================ */
+function AccountManager({ user, setUser, onLogout, onClose }: {
+  user: User; setUser: (u: User) => void; onLogout: () => void; onClose: () => void;
+}) {
+  const [nick, setNick] = useState(user.nickname);
+  const [confirmWipe, setConfirmWipe] = useState(false);
+  const joinedDate = user.createdAt ? new Date(user.createdAt).toLocaleDateString("ko-KR") : new Date().toLocaleDateString("ko-KR");
+  const providerName = ({ GOOGLE: "Google", KAKAO: "Kakao", NAVER: "Naver", GUEST: "게스트" } as Record<string, string>)[user.provider] || user.provider;
+
+  function save() {
+    const n = nick.trim() || user.nickname;
+    if (n !== user.nickname) setUser({ ...user, nickname: n });
+    onClose();
+  }
+  function wipeAll() {
+    try { Object.keys(localStorage).forEach(k => { if (k.startsWith("hak.")) localStorage.removeItem(k); }); } catch {}
+    location.reload();
+  }
+  function exportData() {
+    const data: Record<string, string | null> = {};
+    try { Object.keys(localStorage).forEach(k => { data[k] = localStorage.getItem(k); }); } catch {}
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `학습데이터_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="cal-modal-overlay" onClick={onClose}>
+      <div className="account-modal" onClick={e => e.stopPropagation()}>
+        <div className="account-head">
+          <h3>계정 관리</h3>
+          <button className="icon-button" onClick={onClose} aria-label="닫기"><Icon name="x" size={16} /></button>
+        </div>
+        <div className="account-profile">
+          <span className="account-avatar">{user.nickname.slice(0, 1).toUpperCase()}</span>
+          <div className="account-profile-meta">
+            <div className="account-provider-badge"><Icon name="shield-check" size={12} />{providerName} 계정</div>
+            <div className="account-joined">가입 · {joinedDate}</div>
+          </div>
+        </div>
+        <section className="account-section">
+          <h4>프로필</h4>
+          <label className="account-field">
+            <span>닉네임</span>
+            <input type="text" maxLength={20} value={nick} onChange={e => setNick(e.target.value)} onKeyDown={e => { if (e.key === "Enter") save(); }} />
+          </label>
+          <label className="account-field">
+            <span>사용자 ID</span>
+            <input type="text" value={user.userId} disabled />
+          </label>
+        </section>
+        <section className="account-section">
+          <h4>데이터 관리</h4>
+          <button className="account-row-btn" onClick={exportData}>
+            <Icon name="download" size={15} />
+            <div><strong>학습 데이터 내보내기</strong><span>모든 노트·기록을 JSON 파일로 저장</span></div>
+          </button>
+          {!confirmWipe ? (
+            <button className="account-row-btn danger" onClick={() => setConfirmWipe(true)}>
+              <Icon name="trash-2" size={15} />
+              <div><strong>모든 학습 데이터 삭제</strong><span>노트, 자료, Anki, 세션 등 전체 초기화</span></div>
+            </button>
+          ) : (
+            <div className="account-confirm">
+              <p><strong>정말 삭제하시겠어요?</strong> 모든 학습 데이터가 영구히 사라집니다.</p>
+              <div className="account-confirm-actions">
+                <button className="chip-button" onClick={() => setConfirmWipe(false)}>취소</button>
+                <button className="chip-button danger" onClick={wipeAll}><Icon name="trash-2" size={13} />삭제</button>
+              </div>
+            </div>
+          )}
+        </section>
+        <section className="account-section">
+          <h4>세션</h4>
+          <button className="account-row-btn" onClick={() => { onLogout(); onClose(); }}>
+            <Icon name="log-out" size={15} />
+            <div><strong>로그아웃</strong><span>로그인 화면으로 돌아갑니다</span></div>
+          </button>
+        </section>
+        <footer className="account-foot">
+          <button className="ghost-button" onClick={onClose}>닫기</button>
+          <button className="primary-button" onClick={save}><Icon name="check" size={14} color="#fff" />저장</button>
+        </footer>
+      </div>
     </div>
   );
 }
@@ -286,69 +515,69 @@ function SessionClock() {
    Sidebar
    ============================================================ */
 function Sidebar({
-  activeTab, onTab, user, onLogout, attendance
+  activeTab, onTab, user, setUser, onLogout, attendance,
+  timerSeconds = 0, timerTotalSeconds = 0, timerIsRunning = false, timerType = "STOPWATCH",
 }: {
   activeTab: TabId;
   onTab: (t: TabId) => void;
   user: User;
+  setUser: (u: User) => void;
   onLogout: () => void;
   attendance: number;
+  timerSeconds?: number;
+  timerTotalSeconds?: number;
+  timerIsRunning?: boolean;
+  timerType?: TimerType;
 }) {
+  function fmtSecs(s: number) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+  const showTimer = timerIsRunning ||
+    (timerType === "STOPWATCH" && timerSeconds > 0) ||
+    ((timerType === "TIMER" || timerType === "POMODORO") && timerTotalSeconds > 0 && timerSeconds < timerTotalSeconds);
+  const timerLabel = timerType === "POMODORO" ? "포모도로" : timerType === "TIMER" ? "타이머" : "스톱워치";
   const [open, setOpen] = useState(false);
-  const [notifyOpen, setNotifyOpen] = useState(false);
-  const [notes, setNotes] = useState(NOTIFICATIONS);
-  const unread = notes.filter(n => n.unread).length;
+  const [acctOpen, setAcctOpen] = useState(false);
   const activeLabel = NAV_ITEMS.find(it => it.id === activeTab)?.label ?? "대시보드";
-
-  function pick(id: TabId) { onTab(id); setOpen(false); }
-  function markAllRead() { setNotes(ns => ns.map(n => ({ ...n, unread: false }))); }
+  const pick = (id: TabId) => { onTab(id); setOpen(false); };
+  const fmtNow = () => {
+    const d = new Date();
+    return {
+      date: d.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric", weekday: "short" }),
+      time: d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }),
+    };
+  };
+  const [nowTime, setNowTime] = useState(fmtNow);
+  useEffect(() => {
+    const id = setInterval(() => setNowTime(fmtNow()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <>
-      {/* Mobile top bar */}
       <header className="mobile-bar">
         <div className="mobile-left">
-          <button className="hamburger" aria-label="메뉴 열기" aria-expanded={open} onClick={() => setOpen(true)}>
-            <Menu size={22} />
-          </button>
+          <button className="hamburger" aria-label="메뉴 열기" aria-expanded={open} onClick={() => setOpen(true)}><Icon name="menu" size={22} /></button>
           <span className="mobile-title">{activeLabel}</span>
+          {showTimer && (
+            <button className="mobile-timer-pill" onClick={() => pick("timer")} title="타이머로 이동">
+              <span className={`sidebar-timer-dot ${timerIsRunning ? "running" : "paused"}`} />
+              <span style={{ opacity: .75, fontSize: 11 }}>{timerLabel}</span>
+              <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: 13 }}>{fmtSecs(timerSeconds)}</span>
+            </button>
+          )}
+        </div>
+        <div className="mobile-bar-clock">
+          <span className="mobile-bar-date">{nowTime.date}</span>
+          <span className="mobile-bar-sep" aria-hidden="true" />
+          <span className="mobile-bar-time">{nowTime.time}</span>
         </div>
         <div className="mobile-actions">
-          <span className="attend-badge">
-            <strong>{user.nickname}</strong>님 {attendance}번째 출석!
-          </span>
-          <div className="notify-wrap">
-            <button className="topbar-icon-btn" aria-label="알림" title="알림"
-              aria-expanded={notifyOpen} onClick={() => setNotifyOpen(o => !o)}>
-              <Bell size={18} />
-              {unread > 0 && <span className="notify-dot" />}
-            </button>
-            {notifyOpen && (
-              <>
-                <div className="notify-scrim" onClick={() => setNotifyOpen(false)} />
-                <div className="notify-panel" role="dialog" aria-label="알림">
-                  <div className="notify-head">
-                    <span className="notify-title">알림{unread > 0 ? ` · ${unread}` : ""}</span>
-                    <button className="notify-readall" onClick={markAllRead} disabled={unread === 0}>모두 읽음</button>
-                  </div>
-                  <ul className="notify-list">
-                    {notes.map(n => (
-                      <li key={n.id} className={`notify-item ${n.unread ? "is-unread" : ""}`}>
-                        <span className="notify-ico">{n.icon}</span>
-                        <div className="notify-body">
-                          <p className="notify-text">{n.title}</p>
-                          <span className="notify-time">{n.time}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </>
-            )}
-          </div>
-          <button className="topbar-icon-btn" aria-label="로그아웃" title="로그아웃" onClick={onLogout}>
-            <LogOut size={18} />
-          </button>
+          <span className="attend-badge"><strong>{user.nickname}</strong>님 {attendance}번째 출석!</span>
+          <NotifyButton />
+          <button className="topbar-icon-btn" aria-label="로그아웃" title="로그아웃" onClick={onLogout}><Icon name="log-out" size={18} /></button>
         </div>
       </header>
 
@@ -359,30 +588,50 @@ function Sidebar({
           <div className="brand">
             <span className="brand-mark"><Sparkles size={22} /></span>
             <span>AI 학습 어시스턴트</span>
-            <button className="drawer-close" aria-label="메뉴 닫기" onClick={() => setOpen(false)}>
-              <X size={20} />
-            </button>
+            <button className="drawer-close" aria-label="메뉴 닫기" onClick={() => setOpen(false)}><Icon name="x" size={20} /></button>
           </div>
           <nav className="nav">
             {NAV_ITEMS.map(it => (
               <button key={it.id} className={`nav-button ${activeTab === it.id ? "active" : ""}`} onClick={() => pick(it.id as TabId)}>
-                {it.icon}
-                {it.label}
+                <Icon name={it.icon} size={18} />{it.label}
               </button>
             ))}
           </nav>
         </div>
-        <div className="user">
-          <span className="user-avatar">{user.nickname.slice(0, 1).toUpperCase()}</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="user-name">{user.nickname}</div>
-            <div className="user-sub">{user.provider} 로그인</div>
+        <div className="sidebar-foot">
+          <div className="sidebar-clock">
+            <div className="sidebar-clock-time">{nowTime.time}</div>
+            <div className="sidebar-clock-date">{nowTime.date}</div>
           </div>
-          <button className="user-logout" title="로그아웃" aria-label="로그아웃" onClick={onLogout}>
-            <LogOut size={16} />
+          {showTimer && (
+            <button className={`sidebar-timer-card ${timerIsRunning ? "is-running" : "is-paused"}`} onClick={() => pick("timer")} title="타이머로 이동">
+              <div className="sidebar-timer-card-head">
+                <span className={`sidebar-timer-dot ${timerIsRunning ? "running" : "paused"}`} />
+                <span className="sidebar-timer-card-label">{timerLabel}</span>
+                <span className="sidebar-timer-card-state">{timerIsRunning ? "진행 중" : "일시정지"}</span>
+              </div>
+              <div className="sidebar-timer-card-val">{fmtSecs(timerSeconds)}</div>
+              {(timerType === "TIMER" || timerType === "POMODORO") && timerTotalSeconds > 0 && (
+                <div className="sidebar-timer-card-bar">
+                  <i style={{ width: `${Math.min(100, Math.max(0, (1 - timerSeconds / timerTotalSeconds) * 100))}%` }} />
+                </div>
+              )}
+            </button>
+          )}
+        </div>
+        <div className="user">
+          <button className="user-main" onClick={() => setAcctOpen(true)} aria-label="계정 관리">
+            <span className="user-avatar">{user.nickname.slice(0, 1).toUpperCase()}</span>
+            <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+              <div className="user-name">{user.nickname}</div>
+              <div className="user-sub">{user.email || `${user.provider} 로그인`}</div>
+            </div>
+            <Icon name="settings" size={15} />
           </button>
+          <button className="user-logout" title="로그아웃" aria-label="로그아웃" onClick={onLogout}><Icon name="log-out" size={16} /></button>
         </div>
       </aside>
+      {acctOpen && <AccountManager user={user} setUser={setUser} onLogout={onLogout} onClose={() => setAcctOpen(false)} />}
     </>
   );
 }
@@ -392,7 +641,7 @@ function Sidebar({
    ============================================================ */
 function CharacterFace({ level }: { level: number }) {
   const happy = level >= 6;
-  const vhappy = level >= 13;
+  const vhappy = level >= 11;
   return (
     <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true">
       <circle cx="18" cy="18" r="15" fill="rgba(255,255,255,.55)" stroke="rgba(0,0,0,.08)" strokeWidth="1.5" />
@@ -422,49 +671,74 @@ function CharacterFace({ level }: { level: number }) {
 /* ============================================================
    CharacterCard
    ============================================================ */
-function CharacterCard({ character }: { character: ReturnType<typeof calculateCharacter> }) {
-  const bg = RANK_COLORS[rankColorIdx(character.level)];
-  const prevLevelRef = useRef(character.level);
+function CharacterCard({ character }: { character: CharacterState & { nickname?: string } }) {
+  const prevLevel = usePrevious(character.level);
   const [celebrate, setCelebrate] = useState(false);
+  const [profileImg, setProfileImg] = useState<string | null>(() => {
+    try { return typeof window !== "undefined" ? localStorage.getItem("hak.profileImg") : null; } catch { return null; }
+  });
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handleProfileFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const raw = ev.target?.result as string;
+      const isGif = (file.type || "").includes("gif");
+      if (isGif) {
+        try { localStorage.setItem("hak.profileImg", raw); setProfileImg(raw); } catch { pushToast("이미지가 너무 큽니다 (5MB 이하 권장)"); }
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        const max = 256;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d")?.drawImage(img, 0, 0, w, h);
+        const out = c.toDataURL("image/jpeg", 0.85);
+        try { localStorage.setItem("hak.profileImg", out); setProfileImg(out); } catch { pushToast("이미지 저장 실패"); }
+      };
+      img.src = raw;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
 
   useEffect(() => {
-    if (character.level > prevLevelRef.current) {
+    if (prevLevel != null && character.level > prevLevel) {
       setCelebrate(true);
-      const t = setTimeout(() => setCelebrate(false), 1400);
-      prevLevelRef.current = character.level;
+      pushToast(`${character.nickname || "루미"}님이 레벨 ${character.level} · ${character.rankName}(으)로 성장했어요!`, { accent: true, icon: "sparkles" });
+      const t = setTimeout(() => setCelebrate(false), 1500);
       return () => clearTimeout(t);
     }
-    prevLevelRef.current = character.level;
   }, [character.level]);
 
   return (
-    <div className={`rumi${celebrate ? " levelup" : ""}`} style={{ background: bg }}>
-      <div className="rumi-spark">
-        {celebrate && Array.from({ length: 8 }).map((_, i) => (
-          <span key={i} style={{ left: `${10 + i * 11}%`, animationDelay: `${i * 0.07}s` }} />
-        ))}
-      </div>
+    <div className={`rumi ${celebrate ? "levelup" : ""}`}>
+      <div className="rumi-spark">{Array.from({ length: 8 }).map((_, i) => (
+        <span key={i} style={{ left: `${10 + i * 11}%`, top: "60%", animationDelay: `${i * 0.05}s`, background: i % 2 ? "oklch(0.78 0.14 50)" : "oklch(0.85 0.15 95)" }} />
+      ))}</div>
       <div className="rumi-head">
         <span className="rumi-tag">Lv.{character.level} · {character.rankName}</span>
         <span className="rumi-atd">{character.attendanceDays}일 출석</span>
       </div>
       <div className="rumi-row">
-        <div className="rumi-face"><CharacterFace level={character.level} /></div>
+        <div className="rumi-face" onClick={() => fileRef.current?.click()} title="클릭하여 프로필 이미지 변경">
+          {profileImg
+            ? <img src={profileImg} alt="프로필" />
+            : <CharacterFace level={character.level} />}
+          <div className="rumi-face-overlay"><Icon name="camera" size={13} /></div>
+        </div>
+        <input ref={fileRef} type="file" accept="image/*,.gif" style={{ display: "none" }} onChange={handleProfileFile} />
         <div>
-          <h3 className="rumi-name">{character.name}</h3>
+          <h3 className="rumi-name">{character.nickname ? `${character.nickname} ${character.rankName}님` : "루미"}</h3>
           <p className="rumi-desc">{character.desc}</p>
         </div>
       </div>
       <div className="rumi-bar"><i style={{ width: `${character.progress}%` }} /></div>
-      <div className="rumi-exp">
-        {character.progress}%
-        {character.nextInfo
-          ? <span> · {character.nextInfo}</span>
-          : character.level >= 14
-            ? <span> · 최고 계급 달성!</span>
-            : null
-        }
-      </div>
+      <div className="rumi-exp">{character.progress}%{character.nextInfo ? <span> · 다음 계급 ?</span> : character.level >= 14 ? <span> · 최고 계급 달성!</span> : null}</div>
     </div>
   );
 }
@@ -810,126 +1084,339 @@ function SessionList({ sessions }: { sessions: StudySession[] }) {
    MaterialsView
    ============================================================ */
 function MaterialsView({
-  summaries, materials, selectedSummary, selectedSummaryId,
-  uploadStatus, isSummarizing, onUpload, onSelectSummary, onDeleteSummary,
-  categories, onManageCategories,
+  summaries, materials, categories, onManageCategories, selectedSummary, selectedSummaryId,
+  uploadStatus, onUpload, onSelectSummary, onDeleteSummary,
+  pinnedMaterials = [], onTogglePinMaterial, onDeleteMaterial, onDeleteMaterials, onRenameMaterial,
+  onMoveMaterial, onSummarizeMaterial, summarizingMatId, onCopySummaryToFolder, onMoveSummaryToFolder, onUpdateSummary,
 }: {
   summaries: Summary[];
   materials: LearningMaterial[];
+  categories: string[];
+  onManageCategories: () => void;
   selectedSummary?: Summary;
   selectedSummaryId: string;
   uploadStatus: string;
-  isSummarizing: boolean;
-  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  onUpload: (event: ChangeEvent<HTMLInputElement>, category: string) => void;
   onSelectSummary: (id: string) => void;
   onDeleteSummary: (id: string) => void;
-  categories: string[];
-  onManageCategories: () => void;
+  pinnedMaterials?: string[];
+  onTogglePinMaterial: (id: string) => void;
+  onDeleteMaterial: (id: string) => void;
+  onDeleteMaterials: (ids: string[]) => void;
+  onRenameMaterial: (id: string, name: string) => void;
+  onMoveMaterial: (id: string, category: string) => void;
+  onSummarizeMaterial: (id: string) => void;
+  summarizingMatId: string | null;
+  onCopySummaryToFolder: (id: string, category: string) => void;
+  onMoveSummaryToFolder: (id: string, category: string) => void;
+  onUpdateSummary: (id: string, patch: Partial<Summary>) => void;
 }) {
-  const [uploadCat, setUploadCat] = useState(categories[0] || "기타");
-  useEffect(() => { if (!categories.includes(uploadCat)) setUploadCat(categories[0] || "기타"); }, [categories]);
   const [selMats, setSelMats] = useState<string[]>([]);
   const [selSums, setSelSums] = useState<string[]>([]);
   const [pinned, setPinned] = useState<string[]>([]);
+  const [uploadCat, setUploadCat] = useState(categories[0] || "기타");
+  const [filterCat, setFilterCat] = useState("all");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [openMCats, setOpenMCats] = useState<Set<string>>(new Set());
+  const [matMenu, setMatMenu] = useState<string | null>(null);
+  const [editingMat, setEditingMat] = useState<{ materialId: string; value: string } | null>(null);
+  const [sumMenu, setSumMenu] = useState<string | null>(null);
+  const [sumSub, setSumSub] = useState<"copy" | "move" | null>(null);
+  const [editSel, setEditSel] = useState<{ title: string; content: string; category: string } | null>(null);
+  const [editingSum, setEditingSum] = useState<{ summaryId: string; value: string } | null>(null);
 
-  function toggleMat(id: string) { setSelMats(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
-  function toggleSum(id: string) { setSelSums(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]); }
-  function togglePin(id: string) { setPinned(p => p.includes(id) ? p.filter(x => x !== id) : (p.length < 5 ? [...p, id] : p)); }
+  useEffect(() => {
+    if (!filterOpen) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".cat-filter-wrap")) setFilterOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [filterOpen]);
+  useEffect(() => { setEditSel(null); }, [selectedSummaryId]);
+  useEffect(() => {
+    if (!matMenu) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".note-ctx-wrap")) setMatMenu(null); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [matMenu]);
+  useEffect(() => {
+    if (!sumMenu) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".note-ctx-wrap")) { setSumMenu(null); setSumSub(null); } };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [sumMenu]);
+  useEffect(() => { if (!categories.includes(uploadCat)) setUploadCat(categories[0] || "기타"); }, [categories]);
 
+  function startEditSel() {
+    if (!selectedSummary) return;
+    setEditSel({ title: selectedSummary.title, content: selectedSummary.content, category: selectedSummary.category || categories[0] || "기타" });
+  }
+  function saveEditSel() {
+    if (!editSel || !selectedSummary) return;
+    onUpdateSummary(selectedSummary.summaryId, { title: editSel.title.trim() || selectedSummary.title, content: editSel.content, category: editSel.category });
+    setEditSel(null);
+  }
+  function commitMatRename() {
+    if (editingMat?.value.trim()) onRenameMaterial(editingMat.materialId, editingMat.value.trim());
+    setEditingMat(null);
+  }
+  function commitSumRename() {
+    if (editingSum?.value.trim()) onUpdateSummary(editingSum.summaryId, { title: editingSum.value.trim() });
+    setEditingSum(null);
+  }
+
+  const matAllCats = useMemo(() => {
+    const extra = [...new Set(materials.map(m => m.category || "기타"))].filter(c => !categories.includes(c));
+    return [...categories, ...extra];
+  }, [categories, materials]);
+
+  const toggleMat = (id: string) => setSelMats(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const toggleMCat = (cat: string) => setOpenMCats(s => { const n = new Set(s); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
+  const toggleSum = (id: string) => setSelSums(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const togglePin = (id: string) => setPinned(p => p.includes(id) ? p.filter(x => x !== id) : (p.length < 5 ? [...p, id] : p));
   const canPin = selSums.length > 0 && (selSums.every(id => pinned.includes(id)) || pinned.length < 5);
-  const sortedSums = [
-    ...summaries.filter(s => pinned.includes(s.summaryId)),
-    ...summaries.filter(s => !pinned.includes(s.summaryId)),
-  ];
+  const visibleSums = filterCat === "all" ? summaries : summaries.filter(s => s.category === filterCat);
+  const sortedSums = [...visibleSums.filter(s => pinned.includes(s.summaryId)), ...visibleSums.filter(s => !pinned.includes(s.summaryId))];
+
+  function renderMatRow(m: LearningMaterial, section = "cat") {
+    const isFav = pinnedMaterials.includes(m.materialId);
+    const menuKey = section + "-mat-" + m.materialId;
+    const matSummaries = summaries.filter(s => s.materialId === m.materialId);
+    const isBusy = summarizingMatId === m.materialId;
+    if (editingMat?.materialId === m.materialId) {
+      return (
+        <div className="list-row mat-row mat-indent is-editing" key={m.materialId}>
+          <Icon name="file-text" size={17} />
+          <input className="note-inline-input" autoFocus value={editingMat.value}
+            onChange={e => setEditingMat({ ...editingMat, value: e.target.value })}
+            onKeyDown={e => { if (e.key === "Enter") commitMatRename(); if (e.key === "Escape") setEditingMat(null); }}
+            onBlur={commitMatRename} aria-label="자료 이름 변경" />
+          <button className="note-ctx-btn" onMouseDown={e => e.preventDefault()} onClick={commitMatRename} aria-label="저장"><Icon name="check" size={14} /></button>
+        </div>
+      );
+    }
+    return (
+      <div className={`list-row mat-row mat-indent ${selMats.includes(m.materialId) ? "is-selected" : ""}`} key={m.materialId}>
+        <input type="checkbox" className="row-check" checked={selMats.includes(m.materialId)} onChange={() => toggleMat(m.materialId)} aria-label={`${m.fileName} 선택`} />
+        <Icon name="file-text" size={17} />
+        <div className="mat-file-info">
+          <strong title={m.fileName}>{m.fileName}</strong>
+          <span>{m.fileType} · {new Date(m.uploadedAt).toLocaleString("ko-KR")}{matSummaries.length > 0 && <span className="mat-sum-tag"><Icon name="sparkles" size={10} />요약 {matSummaries.length}</span>}</span>
+        </div>
+        <button className={`mat-ai-btn ${isBusy ? "busy" : ""}`} disabled={!!summarizingMatId} onClick={() => onSummarizeMaterial(m.materialId)} title="이 자료를 AI로 요약·정리">
+          <Icon name={isBusy ? "loader" : "sparkles"} size={13} /><span className="mat-ai-label">{isBusy ? "요약 중…" : "AI 요약"}</span>
+        </button>
+        <div className="mat-actions">
+          <button className={`row-act-btn ${isFav ? "is-fav" : ""}`} onClick={() => onTogglePinMaterial(m.materialId)} aria-label={isFav ? "즐겨찾기 해제" : "즐겨찾기 추가"} title={isFav ? "즐겨찾기 해제" : "즐겨찾기 추가"}><Icon name="star" size={14} /></button>
+          <button className="row-act-btn" onClick={() => setEditingMat({ materialId: m.materialId, value: m.fileName })} aria-label="이름 변경" title="이름 변경"><Icon name="pencil" size={14} /></button>
+          {matAllCats.filter(c => c !== (m.category || "기타")).length > 0 && (
+            <div className="note-ctx-wrap">
+              <button className="row-act-btn" onClick={() => setMatMenu(matMenu === menuKey ? null : menuKey)} aria-label="폴더 이동" title="폴더 이동"><Icon name="folder-input" size={14} /></button>
+              {matMenu === menuKey && (
+                <div className="note-ctx-menu">
+                  <div className="note-ctx-head">폴더 이동</div>
+                  {matAllCats.filter(c => c !== (m.category || "기타")).map(c => (
+                    <button key={c} onClick={() => { onMoveMaterial(m.materialId, c); setMatMenu(null); }}><Icon name="folder" size={12} />{c}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <button className="row-act-btn danger" onClick={() => onDeleteMaterial(m.materialId)} aria-label="삭제" title="삭제"><Icon name="trash-2" size={14} /></button>
+        </div>
+      </div>
+    );
+  }
+
+  const extraCats = [...new Set(materials.map(m => m.category || "기타"))].filter(c => !categories.includes(c));
+  const allMatCats = [...categories, ...extraCats];
+  const filteredCats = filterCat === "all" ? allMatCats : allMatCats.filter(c => c === filterCat);
+  const favMats = materials.filter(m => pinnedMaterials.includes(m.materialId));
 
   return (
     <div className="two-column view-enter">
       <section className="panel">
-        <div className="section-heading">
-          <h3>학습 자료 업로드</h3>
-          <CategoryField categories={categories} value={uploadCat} onChange={setUploadCat} onManage={onManageCategories} />
+        <div className="section-heading"><h3>학습 자료 업로드</h3><span>PDF · TXT · MD · CSV · JSON</span></div>
+        <div className="upload-cat-row">
+          <span className="upload-cat-label">카테고리</span>
+          <CategoryField categories={categories} value={uploadCat} onChange={setUploadCat} onManage={onManageCategories} style={{ flex: 1 }} />
         </div>
-        <label className={`upload-zone ${isSummarizing ? "busy" : ""}`}>
-          <UploadCloud size={36} />
-          <strong>{isSummarizing ? "요약 생성 중" : "파일 선택"}</strong>
+        <label className="upload-zone">
+          <Icon name="upload-cloud" size={36} />
+          <strong>파일 선택</strong>
           <span>{uploadStatus}</span>
-          <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md" onChange={onUpload} disabled={isSummarizing} />
+          <span className="upload-cat-pill">{uploadCat} 카테고리로 저장</span>
+          <input type="file" accept=".pdf,.txt,.md,.csv,.json,.py,.js,.ts,.html" onChange={e => onUpload(e, uploadCat)} />
         </label>
         <div className="list-block-sep" />
         <div className="list-block">
           <div className="list-block-head">
             <h4>업로드 자료</h4>
             <div className="list-block-actions">
-              {selMats.length > 0 && (
-                <button className="chip-button danger" onClick={() => setSelMats([])}>
-                  <Trash2 size={13} />삭제 ({selMats.length})
-                </button>
-              )}
+              {selMats.length > 0 && <button className="chip-button danger" onClick={() => { onDeleteMaterials(selMats); setSelMats([]); }}><Icon name="trash-2" size={13} />삭제 ({selMats.length})</button>}
             </div>
+          </div>
+          <div className="mat-cat-group">
+            <button className="mat-cat-header" onClick={() => toggleMCat("__fav__")}>
+              <span className="mat-cat-chevron" style={{ transform: openMCats.has("__fav__") ? "rotate(90deg)" : "rotate(0deg)" }}><Icon name="star" size={13} /></span>
+              <span className="mat-cat-name" style={{ color: "oklch(0.68 0.15 78)" }}>즐겨찾기</span>
+              <span className="mat-cat-count">{favMats.length}</span>
+            </button>
+            {openMCats.has("__fav__") && favMats.length === 0 && <p className="note-empty-cat" style={{ paddingLeft: 28 }}>즐겨찾기한 자료가 없습니다</p>}
+            {openMCats.has("__fav__") && favMats.map(m => renderMatRow(m, "fav"))}
           </div>
           {materials.length === 0
             ? <p className="empty-text">아직 업로드한 자료가 없습니다.</p>
-            : materials.map(m => (
-              <div className={`list-row mat-row ${selMats.includes(m.materialId) ? "is-selected" : ""}`} key={m.materialId}>
-                <input type="checkbox" className="row-check" checked={selMats.includes(m.materialId)}
-                  onChange={() => toggleMat(m.materialId)} aria-label={`${m.fileName} 선택`} />
-                <UploadCloud size={17} />
-                <div><strong>{m.fileName}</strong><span>{m.fileType} · {new Date(m.uploadedAt).toLocaleString("ko-KR")}</span></div>
-              </div>
-            ))
+            : filteredCats.map(cat => {
+              const catMats = materials.filter(m => (m.category || "기타") === cat);
+              const isOpen = openMCats.has(cat);
+              return (
+                <div key={cat} className="mat-cat-group">
+                  <button className="mat-cat-header" onClick={() => toggleMCat(cat)}>
+                    <span className="mat-cat-chevron" style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}><Icon name="chevron-right" size={13} /></span>
+                    <span className="mat-cat-name">{cat}</span>
+                    <span className="mat-cat-count">{catMats.length}</span>
+                  </button>
+                  {isOpen && catMats.length === 0 && <p className="note-empty-cat" style={{ paddingLeft: 28 }}>자료가 없습니다</p>}
+                  {isOpen && catMats.map(m => renderMatRow(m, cat))}
+                </div>
+              );
+            })
           }
         </div>
       </section>
-
       <section className="panel">
-        <div className="section-heading">
-          <h3>저장된 요약</h3>
-          <div className="sum-toolbar">
-            {selSums.length > 0 && (
-              <>
-                <button className="chip-button" disabled={!canPin}
-                  onClick={() => { selSums.forEach(id => togglePin(id)); setSelSums([]); }}>
-                  <Pin size={13} />{selSums.every(id => pinned.includes(id)) ? "고정 해제" : `고정 ${pinned.length}/5`}
-                </button>
-                <button className="chip-button danger" onClick={() => setSelSums([])}>
-                  <Trash2 size={13} />삭제 ({selSums.length})
-                </button>
-              </>
-            )}
-            <span className="sum-count">{summaries.length}개</span>
+        <div className="section-heading sum-heading-aligned">
+          <div className="sum-heading-left">
+            <h3>저장된 요약</h3>
+            <button className="chip-button sum-pin-always" style={{ marginLeft: "auto", flexShrink: 0 }}
+              disabled={selSums.length === 0 || (!selSums.every(id => pinned.includes(id)) && !canPin)}
+              onClick={() => { selSums.forEach(id => togglePin(id)); setSelSums([]); }}
+              title={selSums.length > 0 ? "선택한 요약 고정/해제" : "요약을 선택하면 고정할 수 있습니다"}>
+              <Icon name="pin" size={13} />
+              {selSums.length > 0 && selSums.every(id => pinned.includes(id)) ? "고정 해제" : `고정 ${pinned.length}/5`}
+            </button>
+          </div>
+          <div />
+          <div className="sum-heading-col3">
+            <div className="cat-filter-wrap note-ctx-wrap">
+              <button className="cat-filter cat-filter-btn" onClick={() => setFilterOpen(o => !o)} aria-label="카테고리 필터" aria-expanded={filterOpen}>
+                <span>{filterCat === "all" ? "전체 카테고리" : filterCat}</span>
+                <Icon name="chevron-down" size={12} style={{ transition: "transform .15s", transform: filterOpen ? "rotate(180deg)" : "none", flexShrink: 0 }} />
+              </button>
+              {filterOpen && (
+                <div className="note-ctx-menu cat-filter-menu">
+                  <button className={filterCat === "all" ? "is-active" : ""} onClick={() => { setFilterCat("all"); setFilterOpen(false); }}>전체 카테고리</button>
+                  {categories.map(c => <button key={c} className={filterCat === c ? "is-active" : ""} onClick={() => { setFilterCat(c); setFilterOpen(false); }}>{c}</button>)}
+                </div>
+              )}
+            </div>
+            <span className="sum-count">{sortedSums.length}개</span>
           </div>
         </div>
         <div className="split-list">
-          <div className="summary-list">
-            {summaries.length === 0
-              ? <p className="empty-text">요약이 생성되면 이곳에 저장됩니다.</p>
-              : sortedSums.map(s => (
+          <div className={`summary-list ${sumMenu ? "menu-open" : ""}`}>
+            {summaries.length === 0 ? <p className="empty-text">요약이 생성되면 이곳에 저장됩니다.</p> : sortedSums.map(s => {
+              if (editingSum?.summaryId === s.summaryId) {
+                return (
+                  <div key={s.summaryId} className="sum-row sum-row-editing">
+                    <Icon name="scroll" size={15} style={{ color: "var(--muted)", flexShrink: 0, marginLeft: 4 }} />
+                    <input className="note-inline-input" autoFocus value={editingSum.value}
+                      onChange={e => setEditingSum({ ...editingSum, value: e.target.value })}
+                      onKeyDown={e => { if (e.key === "Enter") commitSumRename(); if (e.key === "Escape") setEditingSum(null); }}
+                      onBlur={commitSumRename} aria-label="요약 이름 변경" />
+                    <button className="note-ctx-btn" onMouseDown={e => e.preventDefault()} onClick={commitSumRename} aria-label="저장"><Icon name="check" size={14} /></button>
+                  </div>
+                );
+              }
+              return (
                 <div key={s.summaryId} className={`sum-row ${selSums.includes(s.summaryId) ? "is-selected" : ""}`}>
-                  <input type="checkbox" className="row-check" checked={selSums.includes(s.summaryId)}
-                    onChange={() => toggleSum(s.summaryId)} aria-label={`${s.title} 선택`} />
-                  <button className={`summary-item ${s.summaryId === selectedSummaryId ? "active" : ""}`}
-                    onClick={() => onSelectSummary(s.summaryId)}>
-                    {pinned.includes(s.summaryId) && <span className="pin-dot"><Pin size={10} /></span>}
+                  <input type="checkbox" className="row-check" checked={selSums.includes(s.summaryId)} onChange={() => toggleSum(s.summaryId)} aria-label={`${s.title} 선택`} />
+                  <button className={`summary-item ${s.summaryId === selectedSummaryId ? "active" : ""}`} onClick={() => onSelectSummary(s.summaryId)}>
+                    {pinned.includes(s.summaryId) && <span className="pin-dot"><Icon name="pin" size={10} /></span>}
                     <strong>{s.title}</strong>
-                    <span>{s.sourceType === "material" ? "자료 요약" : "노트 요약"}</span>
+                    <span className="sum-meta">{s.category && <span className="cat-chip">{s.category}</span>}{s.sourceType === "material" ? "자료 요약" : "노트 요약"}</span>
                   </button>
+                  <div className="note-ctx-wrap">
+                    <button className="note-ctx-btn" aria-label="요약 옵션" onClick={() => { setSumMenu(sumMenu === s.summaryId ? null : s.summaryId); setSumSub(null); }}><Icon name="more-horizontal" size={14} /></button>
+                    {sumMenu === s.summaryId && (
+                      <div className="note-ctx-menu">
+                        <button onClick={() => { setEditingSum({ summaryId: s.summaryId, value: s.title }); setSumMenu(null); }}><Icon name="pencil" size={13} />이름 변경</button>
+                        <button className={sumSub === "copy" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setSumSub(sumSub === "copy" ? null : "copy"); }}>
+                          <Icon name="copy" size={13} />폴더로 복사
+                          <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: sumSub === "copy" ? "rotate(90deg)" : "none" }} />
+                        </button>
+                        {sumSub === "copy" && (
+                          <div className="note-ctx-submenu">
+                            {categories.map(c => (
+                              <button key={c} onClick={() => { onCopySummaryToFolder(s.summaryId, c); setSumMenu(null); setSumSub(null); }}>
+                                <Icon name="folder" size={12} />{c}{c === s.category && <span className="ctx-cur">현재</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <button className={sumSub === "move" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setSumSub(sumSub === "move" ? null : "move"); }}>
+                          <Icon name="folder-input" size={13} />다른 폴더로 이동
+                          <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: sumSub === "move" ? "rotate(90deg)" : "none" }} />
+                        </button>
+                        {sumSub === "move" && (
+                          <div className="note-ctx-submenu">
+                            {categories.filter(c => c !== s.category).map(c => (
+                              <button key={c} onClick={() => { onMoveSummaryToFolder(s.summaryId, c); setSumMenu(null); setSumSub(null); }}>
+                                <Icon name="folder" size={12} />{c}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <button onClick={() => { togglePin(s.summaryId); setSumMenu(null); }}><Icon name="pin" size={13} />{pinned.includes(s.summaryId) ? "고정 해제" : "고정"}</button>
+                        <button className="danger" onClick={() => { onDeleteSummary(s.summaryId); setSumMenu(null); }}><Icon name="trash-2" size={13} />삭제</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))
-            }
+              );
+            })}
           </div>
           <div className="split-divider" />
           <article className="summary-detail">
-            {selectedSummary ? (
-              <>
+            {selectedSummary ? (editSel ? (
+              <div className="summary-edit">
                 <div className="detail-title">
-                  <div><h4>{selectedSummary.title}</h4><span>{new Date(selectedSummary.createdAt).toLocaleString("ko-KR")}</span></div>
-                  <button className="icon-button danger" aria-label="요약 삭제" onClick={() => onDeleteSummary(selectedSummary.summaryId)}>
-                    <Trash2 size={17} />
-                  </button>
+                  <input className="sum-edit-title" value={editSel.title} onChange={e => setEditSel({ ...editSel, title: e.target.value })} aria-label="요약 제목" placeholder="요약 제목" />
                 </div>
-                <MarkdownPreview content={selectedSummary.content} />
-              </>
-            ) : <p className="empty-text">조회할 요약을 선택하세요.</p>}
+                <div className="sum-edit-row">
+                  <CategoryField categories={categories} value={editSel.category} onChange={v => setEditSel({ ...editSel, category: v })} onManage={onManageCategories} style={{ minWidth: 130 }} />
+                  <div className="sum-edit-actions">
+                    <button className="chip-button" onClick={() => setEditSel(null)}><Icon name="x" size={13} />취소</button>
+                    <button className="chip-button primary" onClick={saveEditSel}><Icon name="check" size={13} />저장</button>
+                  </div>
+                </div>
+                <textarea className="markdown-input sum-edit-text" value={editSel.content} onChange={e => setEditSel({ ...editSel, content: e.target.value })} aria-label="요약 내용" />
+              </div>
+            ) : (() => {
+              const lines = (selectedSummary.content || "").split("\n");
+              const attrIdx = lines.findIndex(l => /^>\s.*(API|생성된 요약|로컬 요약)/i.test(l));
+              let attribution: string | null = null, body = selectedSummary.content;
+              if (attrIdx !== -1) {
+                let st = attrIdx, en = attrIdx + 1;
+                while (st > 0 && lines[st - 1].trim() === "") st--;
+                while (en < lines.length && lines[en].trim() === "") en++;
+                attribution = lines[attrIdx].replace(/^>\s*/, "").trim();
+                body = [...lines.slice(0, st), ...lines.slice(en)].join("\n").replace(/^\n+/, "");
+              }
+              return (
+                <>
+                  <div className="detail-title">
+                    <div><h4>{selectedSummary.title}</h4><span>{selectedSummary.category ? selectedSummary.category + " · " : ""}{new Date(selectedSummary.createdAt).toLocaleString("ko-KR")}</span></div>
+                    <div className="detail-actions">
+                      <button className="icon-button" aria-label="요약 수정" title="수정" onClick={startEditSel}><Icon name="pencil" size={16} /></button>
+                      <button className="icon-button danger" aria-label="요약 삭제" title="삭제" onClick={() => onDeleteSummary(selectedSummary.summaryId)}><Icon name="trash-2" size={17} /></button>
+                    </div>
+                  </div>
+                  {attribution && <div className="summary-attribution"><Icon name="sparkles" size={13} /><span>{attribution}</span></div>}
+                  <MarkdownPreview content={body} />
+                </>
+              );
+            })()) : <p className="empty-text">조회할 요약을 선택하세요.</p>}
           </article>
         </div>
       </section>
@@ -940,77 +1427,317 @@ function MaterialsView({
 /* ============================================================
    NotesView
    ============================================================ */
+type NoteDraft = { title: string; subject: string; markdownContent: string };
+type SummaryDraft = { title: string; content: string; category: string };
 function NotesView({
-  notes, selectedNote, selectedNoteId, noteDraft, quizzes,
-  onSelectNote, onDraftChange, onSave, onNew, onDelete, onSummarize, onQuiz,
-  categories, onManageCategories,
+  notes, categories, onManageCategories, selectedNote, selectedNoteId, noteDraft,
+  onSelectNote, onDraftChange, onSave, onNew, onDelete, onAddCategory, onRenameCategory, onDeleteCategory,
+  onRenameNote, onMoveNote, pinnedNotes = [], onTogglePinNote, summaries = [], onGoToSummary, onDeleteSummary,
+  editingSummary, editingSummaryId, summaryDraft, onSummaryDraftChange, onSaveSummary, onCloseSummary, onDirtyChange,
 }: {
   notes: StudyNote[];
+  categories: string[];
+  onManageCategories: () => void;
   selectedNote?: StudyNote;
   selectedNoteId: string;
-  noteDraft: { title: string; subject: string; markdownContent: string };
-  quizzes: Quiz[];
+  noteDraft: NoteDraft;
   onSelectNote: (id: string) => void;
-  onDraftChange: (d: { title: string; subject: string; markdownContent: string }) => void;
+  onDraftChange: (d: NoteDraft) => void;
   onSave: () => void;
   onNew: () => void;
   onDelete: (id: string) => void;
-  onSummarize: () => void;
-  onQuiz: () => void;
-  categories: string[];
-  onManageCategories: () => void;
+  onAddCategory: (n: string) => boolean;
+  onRenameCategory: (o: string, n: string) => void;
+  onDeleteCategory: (n: string) => void;
+  onRenameNote: (id: string, title: string) => void;
+  onMoveNote: (id: string, category: string) => void;
+  pinnedNotes?: string[];
+  onTogglePinNote: (id: string) => void;
+  summaries?: Summary[];
+  onGoToSummary: (id: string) => void;
+  onDeleteSummary: (id: string) => void;
+  editingSummary?: Summary | null;
+  editingSummaryId: string | null;
+  summaryDraft: SummaryDraft;
+  onSummaryDraftChange: (d: SummaryDraft) => void;
+  onSaveSummary: () => void;
+  onCloseSummary: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
+  const allCats = useMemo(() => {
+    const extra = [...new Set(notes.map(n => n.subject || "기타"))].filter(k => !categories.includes(k));
+    return [...categories, ...extra];
+  }, [categories, notes]);
+
+  const grouped = useMemo(() => {
+    const map: Record<string, StudyNote[]> = {};
+    notes.forEach(n => { const k = n.subject || "기타"; (map[k] ||= []).push(n); });
+    return map;
+  }, [notes]);
+
+  const summariesByCategory = useMemo(() => {
+    const map: Record<string, Summary[]> = {};
+    (summaries || []).forEach(s => { const k = s.category || "기타"; (map[k] ||= []).push(s); });
+    return map;
+  }, [summaries]);
+
+  const pinnedNoteObjects = useMemo(() => notes.filter(n => (pinnedNotes || []).includes(n.noteId)), [notes, pinnedNotes]);
+
+  const [openCats, setOpenCats] = useState<Set<string>>(() => new Set(["__fav__"]));
+  const toggleCat = (cat: string) => setOpenCats(s => { const n = new Set(s); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (selectedNote) setOpenCats(s => { const n = new Set(s); n.add(selectedNote.subject || "기타"); return n; });
+  }, [selectedNoteId]);
+
+  const [editingCat, setEditingCat] = useState<{ name: string; value: string } | null>(null);
+  const [editingNote, setEditingNote] = useState<{ noteId: string; value: string } | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [moveSubMenu, setMoveSubMenu] = useState<string | null>(null);
+  const [pendingNav, setPendingNav] = useState<{ kind: "select" | "new" | "summary"; id?: string } | null>(null);
+
+  const isDirty = useMemo(() => {
+    if (editingSummaryId) return false;
+    const c = (noteDraft.markdownContent || "").trim();
+    const t = (noteDraft.title || "").trim();
+    if (!c && !t) return false;
+    if (!selectedNote) return true;
+    return c !== (selectedNote.markdownContent || "").trim() ||
+      t !== (selectedNote.title || "").trim() ||
+      (noteDraft.subject || "") !== (selectedNote.subject || "");
+  }, [noteDraft, selectedNote, editingSummaryId]);
+
+  useEffect(() => { onDirtyChange(isDirty); }, [isDirty]);
+  useEffect(() => () => onDirtyChange(false), []);
+
+  function trySelect(id: string) { if (isDirty && id !== selectedNoteId) setPendingNav({ kind: "select", id }); else onSelectNote(id); }
+  function tryNew() { if (isDirty) setPendingNav({ kind: "new" }); else onNew(); }
+  function tryGoToSummary(id: string) { if (isDirty) setPendingNav({ kind: "summary", id }); else onGoToSummary(id); }
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const beforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [isDirty]);
+
+  function discardAndNav() {
+    const p = pendingNav; setPendingNav(null);
+    if (!p) return;
+    if (p.kind === "select" && p.id) onSelectNote(p.id);
+    else if (p.kind === "new") onNew();
+    else if (p.kind === "summary" && p.id) onGoToSummary(p.id);
+  }
+  function saveAndNav() {
+    onSave();
+    const p = pendingNav; setPendingNav(null);
+    if (!p) return;
+    setTimeout(() => {
+      if (p.kind === "select" && p.id) onSelectNote(p.id);
+      else if (p.kind === "new") onNew();
+      else if (p.kind === "summary" && p.id) onGoToSummary(p.id);
+    }, 30);
+  }
+
+  const [addingCat, setAddingCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".note-ctx-wrap")) { setOpenMenu(null); setMoveSubMenu(null); } };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [openMenu]);
+
+  function commitCatRename() { if (editingCat?.value.trim()) onRenameCategory(editingCat.name, editingCat.value.trim()); setEditingCat(null); }
+  function commitNoteRename() { if (editingNote?.value.trim()) onRenameNote(editingNote.noteId, editingNote.value.trim()); setEditingNote(null); }
+  function commitAddCat() { if (newCatName.trim()) onAddCategory(newCatName.trim()); setAddingCat(false); setNewCatName(""); }
+
   return (
     <div className="notes-layout view-enter">
       <section className="panel note-index">
         <div className="section-heading">
           <h3>노트 목록</h3>
-          <button className="icon-button" aria-label="새 노트" onClick={onNew}><Plus size={17} /></button>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="icon-button" aria-label="카테고리 추가" title="카테고리 추가" onClick={() => { setAddingCat(true); setNewCatName(""); }}><Icon name="folder-plus" size={15} /></button>
+            <button className="icon-button" aria-label="새 노트" onClick={tryNew}><Icon name="plus" size={17} /></button>
+          </div>
         </div>
-        {notes.length === 0
-          ? <p className="empty-text">첫 학습 노트를 작성해 보세요.</p>
-          : notes.map(note => (
-            <button key={note.noteId} className={`note-list-item ${note.noteId === selectedNoteId ? "active" : ""}`}
-              onClick={() => onSelectNote(note.noteId)}>
-              <strong>{note.title}</strong>
-              <span>{note.subject} · {new Date(note.updatedAt).toLocaleDateString("ko-KR")}</span>
+
+        <div className="note-cat-group">
+          <div className={`note-cat-header ${pinnedNoteObjects.some(n => n.noteId === selectedNoteId) ? "has-active" : ""}`}>
+            <button className="note-cat-toggle" onClick={() => toggleCat("__fav__")}>
+              <span className="note-cat-chevron" style={{ transform: openCats.has("__fav__") ? "rotate(90deg)" : "rotate(0deg)" }}><Icon name="star" size={13} /></span>
             </button>
-          ))
-        }
+            <button className="note-cat-label-btn" onClick={() => toggleCat("__fav__")}>
+              <span className="note-cat-name" style={{ color: "oklch(0.68 0.15 78)" }}>즐겨찾기</span>
+              <span className="note-cat-count">{pinnedNoteObjects.length}</span>
+            </button>
+          </div>
+          {openCats.has("__fav__") && pinnedNoteObjects.map(note => (
+            <div key={note.noteId} className={`note-list-row ${note.noteId === selectedNoteId ? "active" : ""}`}>
+              <button className="note-list-item" onClick={() => trySelect(note.noteId)}>
+                <strong>{note.title}</strong>
+                <span>{note.subject} · {new Date(note.updatedAt).toLocaleDateString("ko-KR")}</span>
+              </button>
+              <button className="note-ctx-btn" style={{ opacity: 1, color: "oklch(0.68 0.15 78)" }} onClick={() => onTogglePinNote(note.noteId)} aria-label="즐겨찾기 해제" title="즐겨찾기 해제"><Icon name="star" size={13} /></button>
+            </div>
+          ))}
+          {openCats.has("__fav__") && pinnedNoteObjects.length === 0 && <p className="note-empty-cat">즐겨찾기한 노트가 없습니다</p>}
+        </div>
+
+        {allCats.map(cat => {
+          const catNotes = grouped[cat] || [];
+          const isOpen = openCats.has(cat);
+          const hasActive = catNotes.some(n => n.noteId === selectedNoteId);
+          const isEditingCat = editingCat?.name === cat;
+          const catMenuKey = `cat:${cat}`;
+          return (
+            <div key={cat} className="note-cat-group">
+              <div className={`note-cat-header ${hasActive ? "has-active" : ""}`}>
+                <button className="note-cat-toggle" onClick={() => toggleCat(cat)}>
+                  <span className="note-cat-chevron" style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}><Icon name="chevron-right" size={13} /></span>
+                </button>
+                {isEditingCat
+                  ? <input className="note-inline-input" autoFocus value={editingCat.value}
+                      onChange={e => setEditingCat({ ...editingCat, value: e.target.value })}
+                      onBlur={commitCatRename}
+                      onKeyDown={e => { if (e.key === "Enter") commitCatRename(); if (e.key === "Escape") setEditingCat(null); }} />
+                  : <button className="note-cat-label-btn" onClick={() => toggleCat(cat)}>
+                      <span className="note-cat-name">{cat}</span>
+                      <span className="note-cat-count">{catNotes.length}</span>
+                    </button>
+                }
+                <div className="note-ctx-wrap">
+                  <button className="note-ctx-btn" aria-label="카테고리 옵션" onClick={() => setOpenMenu(openMenu === catMenuKey ? null : catMenuKey)}><Icon name="more-horizontal" size={14} /></button>
+                  {openMenu === catMenuKey && (
+                    <div className="note-ctx-menu">
+                      <button onClick={() => { setEditingCat({ name: cat, value: cat }); setOpenMenu(null); }}><Icon name="pencil" size={13} />이름 변경</button>
+                      <button className="danger" onClick={() => { onDeleteCategory(cat); setOpenMenu(null); }}><Icon name="trash-2" size={13} />삭제</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {isOpen && catNotes.map(note => {
+                const isEditingNote = editingNote?.noteId === note.noteId;
+                const noteMenuKey = `note:${note.noteId}`;
+                return (
+                  <div key={note.noteId} className={`note-list-row ${note.noteId === selectedNoteId ? "active" : ""}`}>
+                    {isEditingNote
+                      ? <input className="note-inline-input note-inline-note" autoFocus value={editingNote.value}
+                          onChange={e => setEditingNote({ ...editingNote, value: e.target.value })}
+                          onBlur={commitNoteRename}
+                          onKeyDown={e => { if (e.key === "Enter") commitNoteRename(); if (e.key === "Escape") setEditingNote(null); }} />
+                      : <button className="note-list-item" onClick={() => trySelect(note.noteId)}>
+                          <strong>{note.title}</strong>
+                          <span>{new Date(note.updatedAt).toLocaleDateString("ko-KR")}</span>
+                        </button>
+                    }
+                    <div className="note-ctx-wrap">
+                      <button className="note-ctx-btn" aria-label="노트 옵션" onClick={() => setOpenMenu(openMenu === noteMenuKey ? null : noteMenuKey)}><Icon name="more-horizontal" size={14} /></button>
+                      {openMenu === noteMenuKey && (
+                        <div className="note-ctx-menu">
+                          <button onClick={() => { onTogglePinNote(note.noteId); setOpenMenu(null); }}><Icon name="star" size={13} />{(pinnedNotes || []).includes(note.noteId) ? "즐겨찾기 해제" : "즐겨찾기 추가"}</button>
+                          <button onClick={() => { setEditingNote({ noteId: note.noteId, value: note.title }); setOpenMenu(null); }}><Icon name="pencil" size={13} />이름 변경</button>
+                          {allCats.filter(c => c !== (note.subject || "기타")).length > 0 && (
+                            <button className={moveSubMenu === note.noteId ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setMoveSubMenu(moveSubMenu === note.noteId ? null : note.noteId); }}>
+                              <Icon name="folder-input" size={13} />다른 폴더로 이동
+                              <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: moveSubMenu === note.noteId ? "rotate(90deg)" : "none" }} />
+                            </button>
+                          )}
+                          {moveSubMenu === note.noteId && (
+                            <div className="note-ctx-submenu">
+                              {allCats.filter(c => c !== (note.subject || "기타")).map(c => (
+                                <button key={c} onClick={() => { onMoveNote(note.noteId, c); setOpenMenu(null); setMoveSubMenu(null); }}>
+                                  <Icon name="folder" size={12} />{c}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <button className="danger" onClick={() => { onDelete(note.noteId); setOpenMenu(null); }}><Icon name="trash-2" size={13} />삭제</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {isOpen && catNotes.length === 0 && <p className="note-empty-cat">노트가 없습니다</p>}
+              {isOpen && (summariesByCategory[cat] || []).map(sum => (
+                <div key={sum.summaryId} className="note-sum-row">
+                  <Icon name="scroll" size={13} />
+                  <button className="note-sum-btn" onClick={() => tryGoToSummary(sum.summaryId)} style={editingSummaryId === sum.summaryId ? { color: "var(--accent-ink)", fontWeight: 600 } : undefined}>
+                    <strong>{sum.title}</strong>
+                    <span>{sum.sourceType === "note" ? "노트 요약" : "자료 요약"}</span>
+                  </button>
+                  <button className="note-ctx-btn" onClick={() => onDeleteSummary(sum.summaryId)} aria-label="요약 삭제"><Icon name="trash-2" size={12} /></button>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+        {addingCat && (
+          <div className="note-add-cat-row">
+            <Icon name="folder-plus" size={14} />
+            <input className="note-inline-input" autoFocus placeholder="새 카테고리 이름" value={newCatName}
+              onChange={e => setNewCatName(e.target.value)}
+              onBlur={commitAddCat}
+              onKeyDown={e => { if (e.key === "Enter") commitAddCat(); if (e.key === "Escape") { setAddingCat(false); setNewCatName(""); } }} />
+          </div>
+        )}
+
+        {notes.length === 0 && allCats.length === 0 && <p className="empty-text">첫 학습 노트를 작성해 보세요.</p>}
       </section>
 
       <section className="panel note-editor">
-        <div className="editor-toolbar">
-          <input value={noteDraft.title} onChange={e => onDraftChange({ ...noteDraft, title: e.target.value })} aria-label="노트 제목" />
-          <CategoryField categories={categories} value={noteDraft.subject}
-            onChange={v => onDraftChange({ ...noteDraft, subject: v })}
-            onManage={onManageCategories} style={{ maxWidth: 180 }} />
-          <button className="primary-button" onClick={onSave}><Save size={16} /> 저장</button>
-        </div>
-        <textarea className="markdown-input" value={noteDraft.markdownContent}
-          onChange={e => onDraftChange({ ...noteDraft, markdownContent: e.target.value })} aria-label="마크다운 노트 내용" />
-        <div className="inline-actions">
-          <button className="secondary-button" disabled={!selectedNote} onClick={onSummarize}><Bot size={16} /> 노트 요약</button>
-          <button className="secondary-button" disabled={!selectedNote} onClick={onQuiz}><Sparkles size={16} /> 문제 생성</button>
-          {selectedNote && (
-            <button className="danger-button" onClick={() => onDelete(selectedNote.noteId)}><Trash2 size={16} /> 삭제</button>
-          )}
-        </div>
+        {editingSummary ? (
+          <>
+            <div className="summary-badge-row">
+              <span className="summary-mode-badge"><Icon name="scroll" size={13} />AI 요약 문서</span>
+              <button className="ghost-button" onClick={onCloseSummary}><Icon name="arrow-left" size={14} />노트로 돌아가기</button>
+            </div>
+            <div className="editor-toolbar">
+              <input value={summaryDraft.title} onChange={e => onSummaryDraftChange({ ...summaryDraft, title: e.target.value })} aria-label="요약 제목" />
+              <CategoryField categories={categories} value={summaryDraft.category} onChange={v => onSummaryDraftChange({ ...summaryDraft, category: v })} onManage={onManageCategories} style={{ minWidth: 140 }} />
+              <button className="primary-button" onClick={onSaveSummary}><Icon name="save" size={16} color="#fff" /> 저장</button>
+            </div>
+            <div className="inline-actions">
+              <button className="danger-button" onClick={() => { if (editingSummaryId) onDeleteSummary(editingSummaryId); onCloseSummary(); }}><Icon name="trash-2" size={16} /> 요약 삭제</button>
+              <span className="editor-meta">원본: {editingSummary.sourceType === "note" ? "노트 요약" : "자료 요약"} · {new Date(editingSummary.createdAt || Date.now()).toLocaleDateString("ko-KR")}</span>
+            </div>
+            <textarea className="markdown-input" value={summaryDraft.content} onChange={e => onSummaryDraftChange({ ...summaryDraft, content: e.target.value })} aria-label="요약 내용" />
+          </>
+        ) : (
+          <>
+            <div className="editor-toolbar">
+              <input value={noteDraft.title} onChange={e => onDraftChange({ ...noteDraft, title: e.target.value })} aria-label="노트 제목" />
+              <CategoryField categories={categories} value={noteDraft.subject} onChange={v => onDraftChange({ ...noteDraft, subject: v })} onManage={onManageCategories} style={{ minWidth: 140 }} />
+              <button className="primary-button" onClick={onSave}><Icon name="save" size={16} color="#fff" /> 저장</button>
+            </div>
+            <div className="inline-actions">
+              {isDirty && <span className="editor-meta"><span className="unsaved-pill"><Icon name="circle-dot" size={11} />{selectedNote ? "저장되지 않은 변경사항" : "새 노트 작성 중"}</span></span>}
+            </div>
+            <textarea className="markdown-input" value={noteDraft.markdownContent} onChange={e => onDraftChange({ ...noteDraft, markdownContent: e.target.value })} aria-label="마크다운 노트 내용" />
+          </>
+        )}
       </section>
-
-      <section className="panel note-preview">
-        <div className="section-heading"><h3>미리보기</h3><span>Markdown</span></div>
-        <MarkdownPreview content={noteDraft.markdownContent} />
-        <div className="quiz-box">
-          <h4>복습 문제</h4>
-          {quizzes.length === 0
-            ? <p className="empty-text">문제를 생성하면 이곳에 표시됩니다.</p>
-            : quizzes.map(q => (
-              <details key={q.quizId}><summary>{q.question}</summary><p>{q.answer}</p></details>
-            ))
-          }
+      {pendingNav && (
+        <div className="cal-modal-overlay" onClick={() => setPendingNav(null)}>
+          <div className="cal-day-panel unsaved-modal" onClick={e => e.stopPropagation()}>
+            <div className="cal-day-header">
+              <h4>저장하지 않고 나갈까요?</h4>
+              <button className="icon-button" onClick={() => setPendingNav(null)} aria-label="닫기"><Icon name="x" size={14} /></button>
+            </div>
+            <p className="unsaved-body">작성 중인 내용이 있습니다.<br />저장하지 않고 이동하면 변경사항이 사라집니다.</p>
+            <div className="unsaved-actions">
+              <button className="ghost-button" onClick={() => setPendingNav(null)}>취소</button>
+              <button className="danger-button" onClick={discardAndNav}><Icon name="trash-2" size={14} />저장 안 함</button>
+              <button className="primary-button" onClick={saveAndNav}><Icon name="save" size={14} color="#fff" />저장하고 이동</button>
+            </div>
+          </div>
         </div>
-      </section>
+      )}
     </div>
   );
 }
@@ -2116,6 +2843,277 @@ function formatTimer(totalSeconds: number) {
 }
 
 /* ============================================================
+   AI Tutor
+   ============================================================
+   Gemini API 연동: 아래 apiKey에 https://aistudio.google.com/apikey 에서
+   발급받은 키만 넣으면 됩니다. (endpoint/model/provider는 그대로)
+   ============================================================ */
+const TUTOR_API = {
+  provider: "gemini" as "gemini" | "openai" | "claude" | "custom",
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+  apiKey: "",
+  model: "gemini-2.0-flash",
+  systemPrompt: "당신은 친절하고 침착한 AI 학습 튜터입니다. 한국어로 답변하되, 코드 예제와 단계별 설명을 적극적으로 사용하세요. 답변은 학생이 직접 추론할 수 있도록 가이드하는 방향으로 작성하며, 지나치게 길지 않게 핵심을 짚어주세요.",
+};
+
+type TutorMsg = { role: "user" | "assistant"; content: string; ts: number; isError?: boolean };
+type TutorSession = { id: string; title: string; messages: TutorMsg[]; createdAt: number };
+
+async function callTutorAPI(messages: { role: string; content: string }[]) {
+  const { endpoint, apiKey, model, provider, systemPrompt } = TUTOR_API;
+  if (!endpoint || !apiKey) {
+    await new Promise(r => setTimeout(r, 800 + Math.random() * 600));
+    const last = messages[messages.length - 1]?.content || "";
+    return `**(데모 모드)** 실제 응답을 받으려면 \`page.tsx\`의 \`TUTOR_API\` 객체에 endpoint와 apiKey를 입력하세요.\n\n질문: "${last.slice(0, 80)}${last.length > 80 ? "…" : ""}"\n\n좋은 질문입니다. 이 주제를 이해하려면 세 가지를 살펴보면 좋습니다:\n\n1. **기본 개념** — 가장 단순한 형태부터 시작\n2. **핵심 패턴** — 반복되는 구조 파악\n3. **응용** — 실제 문제에 적용\n\n\`\`\`python\ndef example(n):\n    if n <= 1:\n        return n\n    return example(n - 1) + example(n - 2)\n\`\`\`\n\n어느 부분부터 더 깊이 살펴볼까요?`;
+  }
+  let url: string, headers: Record<string, string>, body: string;
+  if (provider === "claude") {
+    url = endpoint;
+    headers = { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
+    body = JSON.stringify({ model: model || "claude-sonnet-4-5", max_tokens: 2048, system: systemPrompt, messages });
+  } else if (provider === "openai") {
+    url = endpoint;
+    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
+    body = JSON.stringify({ model: model || "gpt-4o", messages: [{ role: "system", content: systemPrompt }, ...messages] });
+  } else if (provider === "gemini") {
+    const cleaned = messages.filter(m => m.content?.trim());
+    url = `${endpoint}?key=${apiKey}`;
+    headers = { "Content-Type": "application/json" };
+    body = JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: cleaned.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+    });
+  } else {
+    url = endpoint;
+    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
+    body = JSON.stringify({ model, messages });
+  }
+  const res = await fetch(url, { method: "POST", headers, body });
+  if (!res.ok) throw new Error(`API 오류 ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  if (provider === "claude") return data.content?.[0]?.text || "";
+  if (provider === "openai") return data.choices?.[0]?.message?.content || "";
+  if (provider === "gemini") return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.content || data.text || data.message || JSON.stringify(data);
+}
+
+function loadTutorSessions(): TutorSession[] {
+  try { return JSON.parse(localStorage.getItem("hak.tutor.sessions") || "[]"); } catch { return []; }
+}
+function saveTutorSessions(s: TutorSession[]) {
+  try { localStorage.setItem("hak.tutor.sessions", JSON.stringify(s.slice(0, 20))); } catch {}
+}
+
+function renderTutorMsg(text: string): Array<{ type: "text" | "code"; content: string; lang?: string; key: number }> {
+  const blocks: Array<{ type: "text" | "code"; content: string; lang?: string; key: number }> = [];
+  const re = /```(\w*)\n([\s\S]*?)```/g;
+  let last = 0, m: RegExpExecArray | null, idx = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) blocks.push({ type: "text", content: text.slice(last, m.index), key: idx++ });
+    blocks.push({ type: "code", lang: m[1] || "text", content: m[2], key: idx++ });
+    last = re.lastIndex;
+  }
+  if (last < text.length) blocks.push({ type: "text", content: text.slice(last), key: idx++ });
+  return blocks.length ? blocks : [{ type: "text", content: text, key: 0 }];
+}
+
+function TutorInlineText({ children }: { children: string }) {
+  const html = String(children)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`\n]+)`/g, '<code class="tutor-inline-code">$1</code>')
+    .replace(/\n/g, "<br/>");
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function tokenize(src: string) {
+  const out: { cls: string; text: string }[] = [];
+  const KW = /\b(def|return|if|else|elif|for|while|in|is|not|and|or|class|import|from|as|with|try|except|finally|raise|lambda|None|True|False|function|const|let|var|new|this|null|undefined|true|false|async|await|export|default)\b/;
+  const pat = /(#[^\n]*|\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("[^"\n]*"|'[^'\n]*'|`[^`\n]*`)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][A-Za-z0-9_$]*)|([(){}[\];,:.+\-*/=<>!&|?^%~]+)|(\s+)|([\s\S])/g;
+  let m: RegExpExecArray | null;
+  while ((m = pat.exec(src)) !== null) {
+    if (m[1]) out.push({ cls: "tk-comment", text: m[1] });
+    else if (m[2]) out.push({ cls: "tk-string", text: m[2] });
+    else if (m[3]) out.push({ cls: "tk-number", text: m[3] });
+    else if (m[4]) out.push({ cls: KW.test(m[4]) ? "tk-keyword" : "tk-ident", text: m[4] });
+    else if (m[5]) out.push({ cls: "tk-op", text: m[5] });
+    else out.push({ cls: "", text: m[0] });
+  }
+  return out;
+}
+
+function TutorCodeBlock({ lang, content }: { lang?: string; content: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard?.writeText(content).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  }
+  const tokens = useMemo(() => tokenize(content), [content]);
+  return (
+    <div className="tutor-code">
+      <div className="tutor-code-head">
+        <span className="tutor-code-lang">{lang || "text"}</span>
+        <button className="tutor-code-copy" onClick={copy} aria-label="복사"><Icon name={copied ? "check" : "copy"} size={12} />{copied ? "복사됨" : "COPY"}</button>
+      </div>
+      <pre className="tutor-code-body"><code>{tokens.map((t, i) => <span key={i} className={t.cls}>{t.text}</span>)}</code></pre>
+    </div>
+  );
+}
+
+function TutorView() {
+  const [sessions, setSessions] = useState<TutorSession[]>(() => (typeof window !== "undefined" ? loadTutorSessions() : []));
+  const [activeId, setActiveId] = useState<string | null>(() => (typeof window !== "undefined" ? loadTutorSessions()[0]?.id || null : null));
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { saveTutorSessions(sessions); }, [sessions]);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [activeId, sessions]);
+
+  const active = sessions.find(s => s.id === activeId);
+  const isConfigured = !!(TUTOR_API.endpoint && TUTOR_API.apiKey);
+
+  function newSession() {
+    const id = createId("tutor");
+    setSessions(prev => [{ id, title: "새 세션", messages: [], createdAt: Date.now() }, ...prev]);
+    setActiveId(id);
+    setDraft("");
+  }
+  function deleteSession(id: string) {
+    setSessions(prev => prev.filter(s => s.id !== id));
+    if (activeId === id) setActiveId(sessions.find(s => s.id !== id)?.id || null);
+  }
+
+  async function send(prompt?: string) {
+    const text = (prompt ?? draft).trim();
+    if (!text || busy) return;
+    let sessionId = activeId;
+    let isFirst = false;
+    if (!sessionId) {
+      sessionId = createId("tutor");
+      setSessions(prev => [{ id: sessionId!, title: text.slice(0, 24), messages: [], createdAt: Date.now() }, ...prev]);
+      setActiveId(sessionId);
+      isFirst = true;
+    }
+    const userMsg: TutorMsg = { role: "user", content: text, ts: Date.now() };
+    setSessions(prev => prev.map(s => s.id === sessionId ? {
+      ...s,
+      title: isFirst || s.messages.length === 0 ? text.slice(0, 24) : s.title,
+      messages: [...s.messages, userMsg],
+    } : s));
+    setDraft("");
+    setBusy(true);
+    try {
+      const cur = (sessions.find(s => s.id === sessionId)?.messages || []).concat(userMsg);
+      const reply = await callTutorAPI(cur.map(m => ({ role: m.role, content: m.content })));
+      const aiMsg: TutorMsg = { role: "assistant", content: reply, ts: Date.now() };
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, aiMsg] } : s));
+    } catch (err) {
+      const errMsg: TutorMsg = { role: "assistant", content: `⚠️ 오류: ${(err as Error).message}`, ts: Date.now(), isError: true };
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, errMsg] } : s));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+
+  return (
+    <div className="tutor-layout view-enter">
+      <aside className="tutor-rail">
+        <button className="primary-button tutor-new-btn" onClick={newSession}>
+          <Icon name="plus" size={15} color="#fff" />새 세션 시작
+        </button>
+        <div className="tutor-rail-section">
+          <h4 className="tutor-rail-head">최근 세션</h4>
+          {sessions.length === 0 && <p className="tutor-rail-empty">아직 세션이 없어요</p>}
+          {sessions.map(s => (
+            <div key={s.id} className={`tutor-session-row ${s.id === activeId ? "active" : ""}`}>
+              <button className="tutor-session-btn" onClick={() => setActiveId(s.id)}>
+                <Icon name="message-square" size={14} />
+                <span>{s.title || "이름 없음"}</span>
+              </button>
+              <button className="tutor-session-del" onClick={() => deleteSession(s.id)} aria-label="삭제"><Icon name="x" size={12} /></button>
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      <section className="tutor-chat-panel">
+        <header className="tutor-chat-head">
+          <div>
+            <h3 className="tutor-chat-title">{active?.title || "AI 튜터"}</h3>
+            <span className={`tutor-status ${isConfigured ? "ok" : "warn"}`}>
+              <span className="tutor-status-dot" />
+              {isConfigured ? "AI Tutor Active" : "데모 모드 (API 미설정)"}
+            </span>
+          </div>
+          <div className="tutor-chat-actions">
+            <button className="icon-button" title="대화 내보내기" aria-label="대화 내보내기"
+              onClick={() => {
+                if (!active) return;
+                const txt = active.messages.map(m => `## ${m.role === "user" ? "사용자" : "AI 튜터"}\n${m.content}`).join("\n\n");
+                const blob = new Blob([txt], { type: "text/markdown" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = `${active.title || "tutor"}.md`; a.click();
+                URL.revokeObjectURL(url);
+              }}><Icon name="download" size={15} /></button>
+          </div>
+        </header>
+
+        <div className="tutor-chat-scroll" ref={scrollRef}>
+          {!active || active.messages.length === 0 ? (
+            <div className="tutor-empty">
+              <div className="tutor-empty-mark"><Icon name="sparkles" size={28} /></div>
+              <h4>무엇을 배워볼까요?</h4>
+              <p>모르는 내용이나 영단어를 자유롭게 질문해 보세요.</p>
+            </div>
+          ) : (
+            active.messages.map((m, i) => (
+              <div key={i} className={`tutor-msg ${m.role}`}>
+                {m.role === "assistant" && (
+                  <div className="tutor-msg-head"><span className="tutor-avatar"><Icon name="bot" size={14} /></span><strong>AI 튜터</strong></div>
+                )}
+                {m.role === "user" && <div className="tutor-msg-head"><strong>나</strong></div>}
+                <div className={`tutor-bubble ${m.role}${m.isError ? " is-error" : ""}`}>
+                  {renderTutorMsg(m.content).map(b =>
+                    b.type === "code"
+                      ? <TutorCodeBlock key={b.key} lang={b.lang} content={b.content} />
+                      : <p key={b.key} className="tutor-para"><TutorInlineText>{b.content}</TutorInlineText></p>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+          {busy && (
+            <div className="tutor-msg assistant">
+              <div className="tutor-msg-head"><span className="tutor-avatar"><Icon name="bot" size={14} /></span><strong>AI 튜터</strong></div>
+              <div className="tutor-bubble assistant tutor-typing"><span className="tutor-dot" /><span className="tutor-dot" /><span className="tutor-dot" /></div>
+            </div>
+          )}
+        </div>
+
+        <div className="tutor-input-wrap">
+          <textarea className="tutor-input" rows={1} placeholder="질문을 입력하세요..." value={draft} disabled={busy}
+            onChange={e => setDraft(e.target.value)} onKeyDown={onKey} />
+          <div className="tutor-input-foot">
+            <div className="tutor-input-tools">
+              <button className="tutor-tool-btn" title="첨부 (준비 중)" disabled aria-label="첨부"><Icon name="paperclip" size={14} /></button>
+              <button className="tutor-tool-btn" title="코드 블록" aria-label="코드 블록" onClick={() => setDraft(d => d + "\n```\n\n```")}><Icon name="code" size={14} /></button>
+            </div>
+            <button className="tutor-send" disabled={busy || !draft.trim()} onClick={() => send()} aria-label="보내기"><Icon name={busy ? "loader-2" : "send"} size={16} color="#fff" /></button>
+          </div>
+          <p className="tutor-disclaimer">AI는 실수를 할 수 있습니다. 중요한 정보는 확인하세요.</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ============================================================
    Main App
    ============================================================ */
 export default function Home() {
@@ -2125,8 +3123,7 @@ export default function Home() {
   const [selectedNoteId, setSelectedNoteId] = useState("");
   const [noteDraft, setNoteDraft] = useState({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
   const [nicknameDraft, setNicknameDraft] = useState("");
-  const [uploadStatus, setUploadStatus] = useState("학습 자료를 업로드하면 AI 요약을 바로 생성합니다.");
-  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("파일을 선택해 폴더에 자료를 업로드하세요.");
   // Categories — shared across timer, notes, materials, anki
   const [categories, setCategories] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("hak.categories") || "null") || DEFAULT_CATEGORIES; } catch { return DEFAULT_CATEGORIES; }
@@ -2134,20 +3131,65 @@ export default function Home() {
   const [catManagerOpen, setCatManagerOpen] = useState(false);
   useEffect(() => { try { localStorage.setItem("hak.categories", JSON.stringify(categories)); } catch {} }, [categories]);
 
+  // Favorites (pinned) — persisted
+  const [pinnedNotes, setPinnedNotes] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("hak.pinnedNotes") || "[]"); } catch { return []; }
+  });
+  const [pinnedMaterials, setPinnedMaterials] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("hak.pinnedMaterials") || "[]"); } catch { return []; }
+  });
+  useEffect(() => { try { localStorage.setItem("hak.pinnedNotes", JSON.stringify(pinnedNotes)); } catch {} }, [pinnedNotes]);
+  useEffect(() => { try { localStorage.setItem("hak.pinnedMaterials", JSON.stringify(pinnedMaterials)); } catch {} }, [pinnedMaterials]);
+
+  // Per-material AI summary in-flight
+  const [summarizingMatId, setSummarizingMatId] = useState<string | null>(null);
+
+  // Inline summary editor (within Notes view)
+  const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null);
+  const [summaryDraft, setSummaryDraft] = useState<SummaryDraft>({ title: "", content: "", category: "" });
+
+  // Unsaved-note guard for sidebar tab switches
+  const [noteDirty, setNoteDirty] = useState(false);
+  const [pendingTabNav, setPendingTabNav] = useState<TabId | null>(null);
+
   function addCategory(name: string): boolean {
     const n = name.trim();
-    if (!n || categories.some(c => c.toLowerCase() === n.toLowerCase())) return false;
+    if (!n) return false;
+    if (categories.some(c => c.toLowerCase() === n.toLowerCase())) { pushToast("이미 있는 카테고리예요"); return false; }
     setCategories(cs => [...cs, n]);
+    pushToast(`'${n}' 카테고리를 추가했어요`, { accent: true });
     return true;
   }
   function renameCategory(oldName: string, newName: string) {
     const n = newName.trim();
-    if (!n || categories.some(c => c.toLowerCase() === n.toLowerCase() && c !== oldName)) return;
+    if (!n || n === oldName) return;
+    if (categories.some(c => c.toLowerCase() === n.toLowerCase() && c !== oldName)) { pushToast("이미 있는 카테고리예요"); return; }
     setCategories(cs => cs.map(c => c === oldName ? n : c));
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.map(x => x.subject === oldName ? { ...x, subject: n } : x),
+      materials: prev.materials.map(x => x.category === oldName ? { ...x, category: n } : x),
+      summaries: prev.summaries.map(x => x.category === oldName ? { ...x, category: n } : x),
+      sessions: prev.sessions.map(x => x.subject === oldName ? { ...x, subject: n } : x),
+    }));
+    setNoteDraft(d => d.subject === oldName ? { ...d, subject: n } : d);
+    setTimerSubject(s => s === oldName ? n : s);
+    pushToast("카테고리 이름을 변경했어요");
   }
   function deleteCategory(name: string) {
-    if (categories.length <= 1) return;
+    if (categories.length <= 1) { pushToast("최소 1개의 카테고리가 필요해요"); return; }
+    const fallback = categories.find(c => c === "기타" && c !== name) || categories.find(c => c !== name) || "기타";
     setCategories(cs => cs.filter(c => c !== name));
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.map(x => x.subject === name ? { ...x, subject: fallback } : x),
+      materials: prev.materials.map(x => x.category === name ? { ...x, category: fallback } : x),
+      summaries: prev.summaries.map(x => x.category === name ? { ...x, category: fallback } : x),
+      sessions: prev.sessions.map(x => x.subject === name ? { ...x, subject: fallback } : x),
+    }));
+    setNoteDraft(d => d.subject === name ? { ...d, subject: fallback } : d);
+    setTimerSubject(s => s === name ? fallback : s);
+    pushToast(`'${name}' 카테고리를 삭제했어요`);
   }
 
   const [timerType, setTimerType] = useState<TimerType>("STOPWATCH");
@@ -2331,13 +3373,9 @@ export default function Home() {
     () => state.notes.filter(n => n.userId === currentUser?.userId),
     [state.notes, currentUser?.userId]
   );
-  const userQuizzes = useMemo(
-    () => state.quizzes.filter(q => q.userId === currentUser?.userId),
-    [state.quizzes, currentUser?.userId]
-  );
   const character = useMemo(
-    () => calculateCharacter(currentUser?.userId ?? "guest", userSessions),
-    [currentUser?.userId, userSessions]
+    () => ({ ...calculateCharacter(currentUser?.userId ?? "guest", userSessions), nickname: currentUser?.nickname ?? "" }),
+    [currentUser?.userId, currentUser?.nickname, userSessions]
   );
   const attendance = useMemo(
     () => new Set(userSessions.map(s => s.endTime.slice(0, 10))).size,
@@ -2345,7 +3383,6 @@ export default function Home() {
   );
   const selectedSummary = userSummaries.find(s => s.summaryId === selectedSummaryId) ?? userSummaries[0];
   const selectedNote = userNotes.find(n => n.noteId === selectedNoteId) ?? userNotes[0];
-  const noteQuizzes = userQuizzes.filter(q => q.noteId === selectedNote?.noteId);
 
   useEffect(() => {
     if (selectedNote) {
@@ -2465,35 +3502,25 @@ export default function Home() {
     if (session) await signOut({ callbackUrl: "/" });
   }
 
-  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
+  async function handleUpload(event: ChangeEvent<HTMLInputElement>, category: string) {
     const file = event.target.files?.[0];
     if (!file || !currentUser) return;
-    const validation = validateUpload(file);
-    if (!validation.ok) { setUploadStatus(validation.message); event.target.value = ""; return; }
-    setIsSummarizing(true);
-    setUploadStatus("파일을 읽고 AI 요약을 생성하는 중입니다.");
-    const extractedText = await readFileForSummary(file, validation.fileType);
+    const ext = (file.name.split(".").pop() || "").toUpperCase();
+    const textLike = /\.(txt|md|csv|json|py|js|ts|html)$/i.test(file.name);
+    let extractedText = "";
+    try { extractedText = textLike ? await file.text() : `${ext} 학습 자료: ${file.name}.`; }
+    catch { extractedText = `${ext} 학습 자료: ${file.name}.`; }
+    const cat = category || categories[0] || "기타";
     const material: LearningMaterial = {
       materialId: createId("material"), userId: currentUser.userId, fileName: file.name,
-      fileType: validation.fileType, extractedText, uploadedAt: new Date().toISOString(),
+      fileType: (ext || "FILE") as LearningMaterial["fileType"], extractedText,
+      uploadedAt: new Date().toISOString(), category: cat,
     };
-    const content = await requestSummary(file.name, extractedText);
-    const summary: Summary = {
-      summaryId: createId("summary"), userId: currentUser.userId, materialId: material.materialId,
-      title: file.name.replace(/\.[^.]+$/, ""), content, sourceType: "material", createdAt: new Date().toISOString(),
-    };
-    setState(prev => ({ ...prev, materials: [material, ...prev.materials], summaries: [summary, ...prev.summaries] }));
-    setSelectedSummaryId(summary.summaryId);
-    setUploadStatus("요약이 생성되어 저장되었습니다.");
-    setIsSummarizing(false);
-    void persistStore({ operation: "saveMaterialSummary", userId: currentUser.userId, material, summary });
+    setState(prev => ({ ...prev, materials: [material, ...prev.materials] }));
+    setUploadStatus(`'${file.name}' 자료를 ${cat} 폴더에 저장했습니다.`);
+    void persistStore({ operation: "saveMaterial", userId: currentUser.userId, material });
+    pushToast(`'${cat}' 폴더에 자료를 업로드했어요`, { icon: "upload-cloud" });
     event.target.value = "";
-  }
-
-  async function readFileForSummary(file: File, fileType: LearningMaterial["fileType"]) {
-    if (fileType === "TXT" || fileType === "MD") return file.text();
-    if (fileType === "IMAGE") return `이미지 학습 자료: ${file.name}.`;
-    return `PDF 학습 자료: ${file.name}.`;
   }
 
   async function requestSummary(title: string, content: string) {
@@ -2547,33 +3574,151 @@ export default function Home() {
     void persistStore({ operation: "deleteNote", userId: currentUser.userId, noteId });
   }
 
-  async function summarizeNote() {
-    if (!currentUser || !selectedNote) return;
-    const content = await requestSummary(selectedNote.title, selectedNote.markdownContent);
-    const summary: Summary = {
-      summaryId: createId("summary"), userId: currentUser.userId, noteId: selectedNote.noteId,
-      title: `${selectedNote.title} 노트 요약`, content, sourceType: "note", createdAt: new Date().toISOString(),
-    };
-    setState(prev => ({ ...prev, summaries: [summary, ...prev.summaries] }));
-    setSelectedSummaryId(summary.summaryId);
-    setActiveTab("materials");
-    void persistStore({ operation: "addSummary", userId: currentUser.userId, summary });
-  }
-
-  async function generateQuiz() {
-    if (!currentUser || !selectedNote) return;
-    const res = await fetch("/api/ai/quiz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: selectedNote.title, content: selectedNote.markdownContent }) });
-    const data = (await res.json()) as { quizzes: Array<{ question: string; answer: string }> };
-    const generated: Quiz[] = data.quizzes.map(q => ({ quizId: createId("quiz"), userId: currentUser.userId, noteId: selectedNote.noteId, question: q.question, answer: q.answer, createdAt: new Date().toISOString() }));
-    setState(prev => ({ ...prev, quizzes: [...generated, ...prev.quizzes] }));
-    void persistStore({ operation: "addQuizzes", userId: currentUser.userId, quizzes: generated });
-  }
-
   function deleteSummary(summaryId: string) {
     if (!currentUser) return;
     setState(prev => ({ ...prev, summaries: prev.summaries.filter(s => s.summaryId !== summaryId) }));
     setSelectedSummaryId("");
     void persistStore({ operation: "deleteSummary", userId: currentUser.userId, summaryId });
+    pushToast("요약을 삭제했어요");
+  }
+
+  /* ---- Notes: rename / move / pin ---- */
+  function renameNote(noteId: string, newTitle: string) {
+    if (!currentUser) return;
+    setState(prev => ({ ...prev, notes: prev.notes.map(n => n.noteId === noteId ? { ...n, title: newTitle } : n) }));
+    if (selectedNote?.noteId === noteId) setNoteDraft(d => ({ ...d, title: newTitle }));
+    pushToast("노트 이름을 변경했어요");
+  }
+  function moveNote(noteId: string, newCategory: string) {
+    if (!currentUser) return;
+    const now = new Date().toISOString();
+    setState(prev => ({ ...prev, notes: prev.notes.map(n => n.noteId === noteId ? { ...n, subject: newCategory, updatedAt: now } : n) }));
+    if (selectedNote?.noteId === noteId) setNoteDraft(d => ({ ...d, subject: newCategory }));
+    pushToast(`'${newCategory}' 폴더로 이동했어요`);
+  }
+  function togglePinNote(noteId: string) {
+    setPinnedNotes(p => p.includes(noteId) ? p.filter(id => id !== noteId) : [...p, noteId]);
+  }
+
+  /* ---- Materials: pin / delete / rename / move / summarize ---- */
+  function togglePinMaterial(matId: string) {
+    setPinnedMaterials(p => p.includes(matId) ? p.filter(id => id !== matId) : [...p, matId]);
+  }
+  function deleteMaterial(matId: string) {
+    if (!currentUser) return;
+    setState(prev => ({ ...prev, materials: prev.materials.filter(m => m.materialId !== matId) }));
+    setPinnedMaterials(p => p.filter(id => id !== matId));
+    void persistStore({ operation: "deleteMaterial", userId: currentUser.userId, materialId: matId });
+    pushToast("자료를 삭제했어요");
+  }
+  function deleteMaterials(ids: string[]) {
+    if (!currentUser) return;
+    const set = new Set(ids);
+    setState(prev => ({ ...prev, materials: prev.materials.filter(m => !set.has(m.materialId)) }));
+    setPinnedMaterials(p => p.filter(id => !set.has(id)));
+    ids.forEach(id => void persistStore({ operation: "deleteMaterial", userId: currentUser.userId, materialId: id }));
+    pushToast(`자료 ${ids.length}개를 삭제했어요`);
+  }
+  function renameMaterial(matId: string, newName: string) {
+    const nm = newName.trim();
+    if (!nm) return;
+    setState(prev => ({ ...prev, materials: prev.materials.map(m => m.materialId === matId ? { ...m, fileName: nm } : m) }));
+    pushToast("자료 이름을 변경했어요");
+  }
+  function moveMaterial(matId: string, newCategory: string) {
+    setState(prev => ({ ...prev, materials: prev.materials.map(m => m.materialId === matId ? { ...m, category: newCategory } : m) }));
+    pushToast(`'${newCategory}' 폴더로 이동했어요`);
+  }
+  async function summarizeMaterial(materialId: string) {
+    if (!currentUser || summarizingMatId) return;
+    const mat = userMaterials.find(m => m.materialId === materialId);
+    if (!mat) return;
+    setSummarizingMatId(materialId);
+    try {
+      const title = mat.fileName.replace(/\.[^.]+$/, "");
+      const content = await requestSummary(mat.fileName, mat.extractedText || mat.fileName);
+      const summary: Summary = {
+        summaryId: createId("summary"), userId: currentUser.userId, materialId,
+        title, content, sourceType: "material", category: mat.category || categories[0],
+        createdAt: new Date().toISOString(),
+      };
+      setState(prev => ({ ...prev, summaries: [summary, ...prev.summaries] }));
+      setSelectedSummaryId(summary.summaryId);
+      void persistStore({ operation: "addSummary", userId: currentUser.userId, summary });
+      pushToast(`'${mat.fileName}' AI 요약을 생성했어요`, { accent: true, icon: "sparkles" });
+    } finally {
+      setSummarizingMatId(null);
+    }
+  }
+
+  /* ---- Summary: update / copy / move folder ---- */
+  function updateSummary(id: string, patch: Partial<Summary>) {
+    if (!currentUser) return;
+    let updated: Summary | undefined;
+    setState(prev => ({
+      ...prev,
+      summaries: prev.summaries.map(s => {
+        if (s.summaryId !== id) return s;
+        updated = { ...s, ...patch, updatedAt: new Date().toISOString() };
+        return updated;
+      }),
+    }));
+    if (updated) void persistStore({ operation: "addSummary", userId: currentUser.userId, summary: updated });
+    pushToast("요약을 수정했어요");
+  }
+  function copySummaryToFolder(id: string, category: string) {
+    if (!currentUser) return;
+    const src = userSummaries.find(s => s.summaryId === id);
+    if (!src) return;
+    const copy: Summary = { ...src, summaryId: createId("summary"), category, createdAt: new Date().toISOString() };
+    setState(prev => ({ ...prev, summaries: [copy, ...prev.summaries] }));
+    setSelectedSummaryId(copy.summaryId);
+    void persistStore({ operation: "addSummary", userId: currentUser.userId, summary: copy });
+    pushToast(`'${category}' 폴더로 요약을 복사했어요`, { icon: "copy" });
+  }
+  function moveSummaryToFolder(id: string, category: string) {
+    setState(prev => ({ ...prev, summaries: prev.summaries.map(s => s.summaryId === id ? { ...s, category } : s) }));
+    pushToast(`'${category}' 폴더로 요약을 이동했어요`, { icon: "folder-input" });
+  }
+
+  /* ---- Inline summary editor (in Notes view) ---- */
+  const editingSummary = editingSummaryId ? userSummaries.find(s => s.summaryId === editingSummaryId) ?? null : null;
+  useEffect(() => {
+    if (editingSummary) setSummaryDraft({ title: editingSummary.title || "", content: editingSummary.content || "", category: editingSummary.category || "" });
+  }, [editingSummaryId]);
+  function saveSummary() {
+    if (!editingSummaryId) return;
+    updateSummary(editingSummaryId, {
+      title: (summaryDraft.title || "").trim() || (editingSummary?.title ?? ""),
+      content: summaryDraft.content,
+      category: summaryDraft.category || editingSummary?.category,
+    });
+  }
+
+  /* ---- Account ---- */
+  function updateUser(next: User) {
+    setState(prev => ({ ...prev, user: next }));
+    if (next.provider === "GUEST") saveStoredGuestUser(next);
+    void persistStore({ operation: "login", user: next });
+  }
+
+  /* ---- Unsaved-note guard for sidebar tab switches ---- */
+  function guardedSetTab(tab: TabId) {
+    if (activeTab === "notes" && noteDirty && !editingSummaryId && tab !== "notes") {
+      setPendingTabNav(tab);
+      return;
+    }
+    setActiveTab(tab);
+  }
+  function discardTabNav() {
+    const t = pendingTabNav; setPendingTabNav(null);
+    if (selectedNote) setNoteDraft({ title: selectedNote.title, subject: selectedNote.subject, markdownContent: selectedNote.markdownContent });
+    if (t) setActiveTab(t);
+  }
+  function saveTabNav() {
+    const t = pendingTabNav; setPendingTabNav(null);
+    void saveNote();
+    if (t) setTimeout(() => setActiveTab(t), 0);
   }
 
   function initialSecsFor(type: TimerType, phase?: string) {
@@ -2667,7 +3812,11 @@ export default function Home() {
   /* ---- Main app ---- */
   return (
     <div className="app">
-      <Sidebar activeTab={activeTab} onTab={setActiveTab} user={currentUser} attendance={attendance} onLogout={logout} />
+      <Sidebar
+        activeTab={activeTab} onTab={guardedSetTab} user={currentUser} setUser={updateUser}
+        attendance={attendance} onLogout={logout}
+        timerSeconds={seconds} timerTotalSeconds={totalSeconds} timerIsRunning={isRunning} timerType={timerType}
+      />
 
       <main className="main">
         {activeTab === "overview" ? (
@@ -2676,7 +3825,7 @@ export default function Home() {
               <div className="title-wrap">
                 <p className="eyebrow">Personal learning dashboard</p>
                 <h1 className="page-title">학습 대시보드</h1>
-                <SessionClock />
+                <SessionClock sessions={userSessions} />
               </div>
               <ActivityHeatmap sessions={userSessions} />
             </header>
@@ -2691,32 +3840,46 @@ export default function Home() {
           <header className="topbar">
             <div>
               <p className="eyebrow">Personal learning cockpit</p>
-              <h2>{TAB_TITLES[activeTab]}</h2>
+              <h2>{TAB_TITLES[activeTab]}{activeTab === "tutor" && <span className="tab-subtitle">모르는 내용이나, 영단어를 질문해 보세요!</span>}</h2>
             </div>
-            <SessionClock />
           </header>
         )}
 
         {activeTab === "materials" && (
           <MaterialsView
             summaries={userSummaries} materials={userMaterials}
-            selectedSummary={selectedSummary} selectedSummaryId={selectedSummaryId}
-            uploadStatus={uploadStatus} isSummarizing={isSummarizing}
-            onUpload={handleUpload} onSelectSummary={setSelectedSummaryId} onDeleteSummary={deleteSummary}
             categories={categories} onManageCategories={() => setCatManagerOpen(true)}
+            selectedSummary={selectedSummary} selectedSummaryId={selectedSummaryId}
+            uploadStatus={uploadStatus}
+            onUpload={handleUpload} onSelectSummary={setSelectedSummaryId} onDeleteSummary={deleteSummary}
+            pinnedMaterials={pinnedMaterials} onTogglePinMaterial={togglePinMaterial}
+            onDeleteMaterial={deleteMaterial} onDeleteMaterials={deleteMaterials}
+            onRenameMaterial={renameMaterial} onMoveMaterial={moveMaterial}
+            onSummarizeMaterial={summarizeMaterial} summarizingMatId={summarizingMatId}
+            onCopySummaryToFolder={copySummaryToFolder} onMoveSummaryToFolder={moveSummaryToFolder}
+            onUpdateSummary={updateSummary}
           />
         )}
 
         {activeTab === "notes" && (
           <NotesView
-            notes={userNotes} selectedNote={selectedNote} selectedNoteId={selectedNoteId}
-            noteDraft={noteDraft} quizzes={noteQuizzes}
+            notes={userNotes} categories={categories} onManageCategories={() => setCatManagerOpen(true)}
+            selectedNote={selectedNote} selectedNoteId={selectedNoteId} noteDraft={noteDraft}
             onSelectNote={setSelectedNoteId} onDraftChange={setNoteDraft}
             onSave={saveNote} onNew={newNote} onDelete={deleteNote}
-            onSummarize={summarizeNote} onQuiz={generateQuiz}
-            categories={categories} onManageCategories={() => setCatManagerOpen(true)}
+            onAddCategory={addCategory} onRenameCategory={renameCategory} onDeleteCategory={deleteCategory}
+            onRenameNote={renameNote} onMoveNote={moveNote}
+            pinnedNotes={pinnedNotes} onTogglePinNote={togglePinNote}
+            summaries={userSummaries} onGoToSummary={setEditingSummaryId}
+            onDeleteSummary={id => { deleteSummary(id); if (id === editingSummaryId) setEditingSummaryId(null); }}
+            editingSummary={editingSummary} editingSummaryId={editingSummaryId}
+            summaryDraft={summaryDraft} onSummaryDraftChange={setSummaryDraft}
+            onSaveSummary={saveSummary} onCloseSummary={() => setEditingSummaryId(null)}
+            onDirtyChange={setNoteDirty}
           />
         )}
+
+        {activeTab === "tutor" && <TutorView />}
 
         {activeTab === "timer" && (
           <TimerView
@@ -2757,6 +3920,25 @@ export default function Home() {
           onClose={() => setCatManagerOpen(false)}
         />
       )}
+
+      {pendingTabNav && (
+        <div className="cal-modal-overlay" onClick={() => setPendingTabNav(null)}>
+          <div className="cal-day-panel unsaved-modal" onClick={e => e.stopPropagation()}>
+            <div className="cal-day-header">
+              <h4>저장하지 않고 나갈까요?</h4>
+              <button className="icon-button" onClick={() => setPendingTabNav(null)} aria-label="닫기"><Icon name="x" size={14} /></button>
+            </div>
+            <p className="unsaved-body">작성 중인 노트가 있습니다.<br />저장하지 않고 이동하면 변경사항이 사라집니다.</p>
+            <div className="unsaved-actions">
+              <button className="ghost-button" onClick={() => setPendingTabNav(null)}>취소</button>
+              <button className="danger-button" onClick={discardTabNav}><Icon name="trash-2" size={14} />저장 안 함</button>
+              <button className="primary-button" onClick={saveTabNav}><Icon name="save" size={14} color="#fff" />저장하고 이동</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ToastHost />
     </div>
   );
 }
