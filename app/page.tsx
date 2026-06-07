@@ -43,6 +43,7 @@ import {
   ChatMessage,
   LearningMaterial,
   Quiz,
+  StudyClock,
   StudyNote,
   StudySession,
   Summary,
@@ -272,32 +273,82 @@ function CategoryField({ categories, value, onChange, onManage, label = "과목"
 /* ============================================================
    SessionClock
    ============================================================ */
-function SessionClock() {
+function SessionClock({ userId }: { userId: string }) {
+  // Display/calc unchanged from the original wall clock; only the persistence
+  // moved from shared localStorage to a per-account, DB-synced record so the
+  // study time/value follow the account across devices.
   const todayStr = new Date().toISOString().slice(0, 10);
-  const SK = "studyapp.sessStart." + todayStr;
-  const AK = "studyapp.accKRW";
-  const [startMs] = useState(() => {
-    if (typeof window === "undefined") return Date.now();
-    const v = localStorage.getItem(SK);
-    if (v) return parseInt(v, 10);
-    const t = Date.now();
-    localStorage.setItem(SK, String(t));
-    return t;
-  });
+  const [startMs, setStartMs] = useState<number | null>(null);
+  const [accBase, setAccBase] = useState(0);
   const [, setTick] = useState(0);
+  const savedHourRef = useRef<number>(-1);
+
+  const persist = (start: number, acc: number, todayKRW: number) => {
+    void fetch("/api/study-clock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, date: todayStr, startMs: start, accKRW: acc, todayKRW }),
+    }).catch(() => {});
+  };
+
+  // Load the account's clock from the DB (per-account, cross-device).
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      let resolvedStart = Date.now();
+      let resolvedAcc = 0;
+      try {
+        const res = await fetch(`/api/study-clock?userId=${encodeURIComponent(userId)}`);
+        if (res.ok) {
+          const { clock } = (await res.json()) as { clock: StudyClock | null };
+          if (clock) {
+            if (clock.date === todayStr) {
+              resolvedStart = clock.startMs;
+              resolvedAcc = clock.accKRW;
+            } else {
+              // New day: fold the previous day's value into the accumulated total.
+              resolvedAcc = clock.accKRW + (clock.todayKRW || 0);
+              resolvedStart = Date.now();
+            }
+          }
+        }
+      } catch {
+        // offline — start a fresh local baseline; will sync on next success.
+      }
+      if (cancelled) return;
+      savedHourRef.current = Math.floor((Date.now() - resolvedStart) / 3600000);
+      setStartMs(resolvedStart);
+      setAccBase(resolvedAcc);
+      persist(resolvedStart, resolvedAcc, savedHourRef.current * MIN_WAGE);
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [userId, todayStr]);
+
   useEffect(() => {
     const id = setInterval(() => setTick(n => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
-  const elapsedMs = Date.now() - startMs;
+
+  const elapsedMs = startMs != null ? Date.now() - startMs : 0;
   const totalSec = Math.floor(elapsedMs / 1000);
   const hh = Math.floor(totalSec / 3600);
   const mm = Math.floor((totalSec % 3600) / 60);
   const ss = totalSec % 60;
   const timeStr = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   const todayValue = Math.floor(elapsedMs / 3600000) * MIN_WAGE;
-  const accBase = typeof window !== "undefined" ? parseInt(localStorage.getItem(AK) || "0", 10) : 0;
   const totalAcc = accBase + todayValue;
+
+  // Checkpoint to the DB when the hour (and thus today's value) advances.
+  useEffect(() => {
+    if (startMs == null) return;
+    const hours = Math.floor(elapsedMs / 3600000);
+    if (hours !== savedHourRef.current) {
+      savedHourRef.current = hours;
+      persist(startMs, accBase, hours * MIN_WAGE);
+    }
+  });
+
   return (
     <div className="session-clock">
       <div className="sc-timer">{timeStr}</div>
@@ -2913,7 +2964,7 @@ export default function Home() {
               <div className="title-wrap">
                 <p className="eyebrow">Personal learning dashboard</p>
                 <h1 className="page-title">학습 대시보드</h1>
-                <SessionClock />
+                <SessionClock userId={currentUser.userId} />
               </div>
               <ActivityHeatmap sessions={userSessions} />
             </header>
@@ -2932,7 +2983,7 @@ export default function Home() {
               <p className="eyebrow">Personal learning cockpit</p>
               <h2>{TAB_TITLES[activeTab]}</h2>
             </div>
-            <SessionClock />
+            <SessionClock userId={currentUser.userId} />
           </header>
         )}
 
