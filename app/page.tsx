@@ -856,10 +856,12 @@ function CalDayCell({ day, isToday, isSel, hasSession, scheds, onClick }: {
 /* ============================================================
    CalendarWidget
    ============================================================ */
-function CalendarWidget({ sessions, schedules, setScheds }: {
+function CalendarWidget({ sessions, schedules, setScheds, notes = [], anki }: {
   sessions: StudySession[];
   schedules: Record<string, Sched[]>;
   setScheds: React.Dispatch<React.SetStateAction<Record<string, Sched[]>>>;
+  notes?: StudyNote[];
+  anki?: AnkiState;
 }) {
   const [cal, setCal] = useState(() => new Date());
   const [selDay, setSelDay] = useState<string | null>(null);
@@ -895,7 +897,9 @@ function CalendarWidget({ sessions, schedules, setScheds }: {
   }
   function getDayStats(dateStr: string) {
     const ds = sessions.filter(s => s.endTime.slice(0, 10) === dateStr);
-    return { totalMin: ds.reduce((a, s) => a + s.durationMinutes, 0), count: ds.length };
+    const noteCount = notes.filter(n => (n.updatedAt || "").slice(0, 10) === dateStr).length;
+    const ankiCount = (anki?.cards ?? []).filter(c => c.due && new Date(c.due).toISOString().slice(0, 10) === dateStr).length;
+    return { totalMin: ds.reduce((a, s) => a + s.durationMinutes, 0), count: ds.length, noteCount, ankiCount };
   }
 
   const cells: React.ReactNode[] = [];
@@ -941,8 +945,8 @@ function CalendarWidget({ sessions, schedules, setScheds }: {
             <div className="cal-day-stats">
               <div className="cal-stat-item"><span>타이머</span><b>{dayStats ? formatMinutes(dayStats.totalMin) : "0분"}</b></div>
               <div className="cal-stat-item"><span>세션</span><b>{dayStats?.count ?? 0}회</b></div>
-              <div className="cal-stat-item"><span>노트</span><b>0건</b></div>
-              <div className="cal-stat-item"><span>Anki</span><b>0개</b></div>
+              <div className="cal-stat-item"><span>노트</span><b>{dayStats?.noteCount ?? 0}건</b></div>
+              <div className="cal-stat-item"><span>Anki</span><b>{dayStats?.ankiCount ?? 0}개</b></div>
             </div>
             <div className="cal-schedule-section">
               <h5>스케줄</h5>
@@ -1065,10 +1069,11 @@ function ActivityHeatmap({ sessions }: { sessions: StudySession[] }) {
    Overview
    ============================================================ */
 function Overview({
-  character, sessions, anki, onGoAnki, schedules, setScheds
+  character, sessions, notes = [], anki, onGoAnki, schedules, setScheds
 }: {
   character: ReturnType<typeof calculateCharacter>;
   sessions: StudySession[];
+  notes?: StudyNote[];
   anki: AnkiState;
   onGoAnki: () => void;
   schedules: Record<string, Sched[]>;
@@ -1091,7 +1096,7 @@ function Overview({
   return (
     <div className="overview-grid">
       <div className="overview-main">
-        <CalendarWidget sessions={sessions} schedules={schedules} setScheds={setScheds} />
+        <CalendarWidget sessions={sessions} schedules={schedules} setScheds={setScheds} notes={notes} anki={anki} />
       </div>
       <aside className="rail">
         <CharacterCard character={character} />
@@ -1824,7 +1829,7 @@ function NotesView({
    ============================================================ */
 interface TimerCfg {
   timerH: number; timerM: number; timerS: number;
-  pomoStudySec: number; pomoBreakSec: number;
+  pomoStudySec: number; pomoBreakSec: number; pomoLongBreakSec?: number;
   pomoRepeat: number; pomoRound: number;
 }
 
@@ -3272,7 +3277,7 @@ export default function Home() {
   const [pomoPhase, setPomoPhase] = useState<"study" | "break">("study");
   const [timerCfg, setTimerCfg] = useState<TimerCfg>({
     timerH: 0, timerM: 30, timerS: 0,
-    pomoStudySec: 1500, pomoBreakSec: 300,
+    pomoStudySec: 1500, pomoBreakSec: 300, pomoLongBreakSec: 900,
     pomoRepeat: 4, pomoRound: 0,
   });
   const timerStartRef = useRef<Date | null>(null);
@@ -3367,17 +3372,21 @@ export default function Home() {
         recordSession(Math.max(1, Math.round(timerCfg.pomoStudySec / 60)));
         const nextRound = timerCfg.pomoRound + 1;
         setTimerCfg(c => ({ ...c, pomoRound: nextRound }));
-        if (nextRound >= timerCfg.pomoRepeat) {
-          resetTimer();
-        } else {
-          setPomoPhase("break");
-          const t = timerCfg.pomoBreakSec;
-          setSeconds(t); setTotalSeconds(t);
-        }
-      } else {
-        setPomoPhase("study");
-        const t = timerCfg.pomoStudySec;
+        const isLast = nextRound >= timerCfg.pomoRepeat;
+        setPomoPhase("break");
+        const t = isLast ? (timerCfg.pomoLongBreakSec || timerCfg.pomoBreakSec * 3) : timerCfg.pomoBreakSec;
         setSeconds(t); setTotalSeconds(t);
+        pushToast(isLast ? "마지막 라운드 완료! 긴 휴식 시간이에요" : "휴식 시간이에요", { accent: isLast, icon: isLast ? "sparkles" : undefined });
+      } else {
+        if (timerCfg.pomoRound >= timerCfg.pomoRepeat) {
+          resetTimer();
+          pushToast("포모도로 세션을 마쳤어요", { accent: true });
+        } else {
+          setPomoPhase("study");
+          const t = timerCfg.pomoStudySec;
+          setSeconds(t); setTotalSeconds(t);
+          pushToast("다시 학습을 시작해요");
+        }
       }
     }
   }, [seconds, isRunning, timerType, pomoPhase]);
@@ -3601,6 +3610,8 @@ export default function Home() {
 
   async function logout() {
     setIsRunning(false);
+    const keepKeys = new Set(["hak.accKRW", "hak.profileImg"]);
+    try { Object.keys(localStorage).forEach(k => { if (k.startsWith("hak.") && !keepKeys.has(k)) localStorage.removeItem(k); }); } catch {}
     if (currentUser?.provider === "GUEST") getGuestStorage()?.removeItem(GUEST_USER_STORAGE_KEY);
     setState(initialState);
     const session = await getSession();
@@ -3797,7 +3808,14 @@ export default function Home() {
     pushToast(`'${category}' 폴더로 요약을 복사했어요`, { icon: "copy" });
   }
   function moveSummaryToFolder(id: string, category: string) {
-    setState(prev => ({ ...prev, summaries: prev.summaries.map(s => s.summaryId === id ? { ...s, category } : s) }));
+    if (!currentUser) return;
+    let updated: Summary | undefined;
+    setState(prev => ({ ...prev, summaries: prev.summaries.map(s => {
+      if (s.summaryId !== id) return s;
+      updated = { ...s, category, updatedAt: new Date().toISOString() };
+      return updated;
+    }) }));
+    if (updated) void persistStore({ operation: "addSummary", userId: currentUser.userId, summary: updated });
     pushToast(`'${category}' 폴더로 요약을 이동했어요`, { icon: "folder-input" });
   }
 
@@ -3851,7 +3869,7 @@ export default function Home() {
       const s = initialSecsFor(timerType);
       setSeconds(s); setTotalSeconds(s);
     }
-    timerStartRef.current = new Date(); setIsRunning(true);
+    if (!timerStartRef.current) timerStartRef.current = new Date(); setIsRunning(true);
   }
   function pauseTimer() { setIsRunning(false); }
   function resetTimer() {
@@ -3974,6 +3992,7 @@ export default function Home() {
             <Overview
               character={character}
               sessions={userSessions}
+              notes={userNotes}
               anki={anki}
               onGoAnki={() => { setActiveTab("anki"); startReview(ankiDeckId); }}
               schedules={scheds}
