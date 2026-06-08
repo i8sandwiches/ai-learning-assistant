@@ -10,7 +10,7 @@ export function createAId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function newCard(noteId: string, deckId: string, ord = 0): AnkiCard {
+export function newCard(noteId: string, deckId: string, ord = 0): AnkiCard {
   return {
     cardId: createAId("card"),
     noteId, deckId, ord,
@@ -23,8 +23,15 @@ function newCard(noteId: string, deckId: string, ord = 0): AnkiCard {
 
 export function addBasicNote(s: AnkiState, deckId: string, front: string, back: string, tags: string[]) {
   const noteId = createAId("note");
-  s.notes.push({ noteId, deckId, type: "basic", fields: { front, back }, tags, createdAt: nowMs() });
+  s.notes.push({ noteId, deckId, type: "basic", reversed: false, fields: { front, back }, tags, createdAt: nowMs() });
   s.cards.push(newCard(noteId, deckId, 0));
+}
+
+export function addReversedNote(s: AnkiState, deckId: string, front: string, back: string, tags: string[]) {
+  const noteId = createAId("note");
+  s.notes.push({ noteId, deckId, type: "basic", reversed: true, fields: { front, back }, tags, createdAt: nowMs() });
+  s.cards.push(newCard(noteId, deckId, 0));
+  s.cards.push(newCard(noteId, deckId, 1));
 }
 
 export function addClozeNote(s: AnkiState, deckId: string, text: string, extra: string, tags: string[]) {
@@ -137,7 +144,9 @@ export function getCardFB(s: AnkiState, card: AnkiCard) {
     const extra = note.fields.extra ? `<div class="cloze-extra">${esc(note.fields.extra)}</div>` : "";
     return { front: r.front, back: r.back + extra, deckName: deck?.name ?? "" };
   }
-  return { front: esc(note.fields.front ?? ""), back: esc(note.fields.back ?? ""), deckName: deck?.name ?? "" };
+  const f = esc(note.fields.front ?? ""), b = esc(note.fields.back ?? "");
+  if (note.reversed && card.ord === 1) return { front: b, back: f, deckName: deck?.name ?? "" };
+  return { front: f, back: b, deckName: deck?.name ?? "" };
 }
 
 const SEED_SAMPLES = [
@@ -161,11 +170,11 @@ export function makeDefaultAnkiState(): AnkiState {
   const csId = createAId("deck");
   const enId = createAId("deck");
   s.decks.push(
-    { deckId: csId, name: "CS · 운영체제", createdAt: nowMs() },
-    { deckId: enId, name: "영어 · 어휘", createdAt: nowMs() },
+    { deckId: csId, name: "CS · 운영체제", category: "전공", createdAt: nowMs() },
+    { deckId: enId, name: "영어 · 어휘", category: "영어", createdAt: nowMs() },
   );
   for (const { front, back } of SEED_SAMPLES.slice(0, 3)) addBasicNote(s, csId, front, back, []);
-  for (const { front, back } of SEED_SAMPLES.slice(3)) addBasicNote(s, enId, front, back, []);
+  for (const { front, back } of SEED_SAMPLES.slice(3)) addReversedNote(s, enId, front, back, []);
   addClozeNote(s, csId, "제3 정규형(3NF)은 2NF를 만족하고 모든 비주요 속성이 기본 키에 {{c1::이행적}}으로 종속되지 않을 것을 요구한다.", "", []);
   return s;
 }
