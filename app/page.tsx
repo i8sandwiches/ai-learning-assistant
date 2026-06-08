@@ -75,12 +75,15 @@ import {
 import {
   addBasicNote,
   addClozeNote,
+  addReversedNote,
   buildQueue,
   createAId,
   getDeckCounts,
   getCardFB,
   loadAnkiFromStorage,
   makeDefaultAnkiState,
+  newCard,
+  peekLabel,
   saveAnkiToStorage,
   schedule,
 } from "@/lib/anki";
@@ -2325,6 +2328,45 @@ function AnkiTextDialog({ title, label, initial, placeholder, confirmLabel, onCo
   );
 }
 
+function AnkiDeckDialog({ title, categories, initial, confirmLabel, onConfirm, onManage, onClose }: {
+  title: string;
+  categories: string[];
+  initial?: { name?: string; category?: string };
+  confirmLabel: string;
+  onConfirm: (name: string, category: string) => void;
+  onManage: () => void;
+  onClose: () => void;
+}) {
+  const cats = categories && categories.length ? categories : ["기타"];
+  const [name, setName] = useState(initial?.name || "");
+  const [cat, setCat] = useState(initial?.category || cats[0]);
+  const ok = name.trim().length > 0;
+  return (
+    <AnkiDialogShell title={title} onClose={onClose}>
+      <label className="dialog-field">
+        <span>덱 이름</span>
+        <input autoFocus type="text" value={name} placeholder="예: 전공 - 자료구조" maxLength={40}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && ok) onConfirm(name.trim(), cat); }} />
+      </label>
+      <label className="dialog-field">
+        <span>카테고리</span>
+        <div className="cat-field" style={{ width: "100%" }}>
+          <select value={cat} onChange={e => setCat(e.target.value)}>
+            {cats.map(c => <option key={c} value={c}>{c}</option>)}
+            {cat && !cats.includes(cat) && <option value={cat}>{cat}</option>}
+          </select>
+          <button type="button" className="cat-manage-btn" title="카테고리 관리" aria-label="카테고리 관리" onClick={onManage}><Icon name="settings-2" size={15} /></button>
+        </div>
+      </label>
+      <div className="dialog-actions">
+        <button className="ghost-button" onClick={onClose}>취소</button>
+        <button className="primary-button" disabled={!ok} onClick={() => onConfirm(name.trim(), cat)}>{confirmLabel}</button>
+      </div>
+    </AnkiDialogShell>
+  );
+}
+
 function AnkiConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onClose }: {
   title: string; message: string; confirmLabel: string; danger?: boolean; onConfirm: () => void; onClose: () => void;
 }) {
@@ -2343,12 +2385,12 @@ function AnkiCardDialog({ title, deckId, decks, initial, confirmLabel, onConfirm
   title: string;
   deckId: string;
   decks: { deckId: string; name: string }[];
-  initial?: { type: "basic" | "cloze"; front?: string; back?: string; text?: string };
+  initial?: { type: "basic" | "reversed" | "cloze"; front?: string; back?: string; text?: string };
   confirmLabel: string;
-  onConfirm: (deckId: string, type: "basic" | "cloze", front: string, back: string, text: string) => void;
+  onConfirm: (deckId: string, type: "basic" | "reversed" | "cloze", front: string, back: string, text: string) => void;
   onClose: () => void;
 }) {
-  const [type, setType] = useState<"basic" | "cloze">(initial?.type || "basic");
+  const [type, setType] = useState<"basic" | "reversed" | "cloze">(initial?.type || "basic");
   const [front, setFront] = useState(initial?.front || "");
   const [back, setBack] = useState(initial?.back || "");
   const [text, setText] = useState(initial?.text || "");
@@ -2367,6 +2409,7 @@ function AnkiCardDialog({ title, deckId, decks, initial, confirmLabel, onConfirm
         <span>유형</span>
         <div className="type-seg">
           <button type="button" className={type === "basic" ? "active" : ""} onClick={() => setType("basic")}>기본</button>
+          <button type="button" className={type === "reversed" ? "active" : ""} onClick={() => setType("reversed")}>양면</button>
           <button type="button" className={type === "cloze" ? "active" : ""} onClick={() => setType("cloze")}>빈칸 (Cloze)</button>
         </div>
       </label>
@@ -2386,6 +2429,7 @@ function AnkiCardDialog({ title, deckId, decks, initial, confirmLabel, onConfirm
         </label>
       ) : (
         <>
+          {type === "reversed" && <p className="dialog-hint">앞·뒤가 서로 바뀐 카드 2장이 함께 만들어집니다.</p>}
           <label className="dialog-field">
             <span>앞면 (질문)</span>
             <textarea autoFocus rows={2} value={front} placeholder="앞면에 표시할 내용" onChange={e => setFront(e.target.value)} />
@@ -2481,19 +2525,21 @@ function AnkiStatsPanel({ anki }: { anki: AnkiState }) {
    ============================================================ */
 type AnkiDialog =
   | { kind: "addDeck" }
-  | { kind: "renameDeck"; id: string; name: string }
+  | { kind: "renameDeck"; id: string; name: string; category?: string }
   | { kind: "deleteDecks"; ids: string[] }
   | { kind: "addCard" }
   | { kind: "editCard"; noteId: string }
   | { kind: "deleteCard"; noteId: string };
 
 function AnkiView({
-  anki, setAnki, deckId, setDeckId, onStartReview
+  anki, setAnki, deckId, setDeckId, categories, onManageCategories, onStartReview
 }: {
   anki: AnkiState;
   setAnki: React.Dispatch<React.SetStateAction<AnkiState>>;
   deckId: string;
   setDeckId: (id: string) => void;
+  categories: string[];
+  onManageCategories: () => void;
   onStartReview: (id: string) => void;
 }) {
   const [sub, setSub] = useState<"today" | "browse" | "stats">("today");
@@ -2503,14 +2549,14 @@ function AnkiView({
 
   function mutate(fn: (s: AnkiState) => AnkiState) { setAnki(prev => fn({ ...prev })); }
 
-  function doAddDeck(name: string) {
+  function doAddDeck(name: string, category: string) {
     const id = createAId("deck");
-    mutate(s => ({ ...s, decks: [...s.decks, { deckId: id, name, createdAt: Date.now() }] }));
+    mutate(s => ({ ...s, decks: [...s.decks, { deckId: id, name, category: category || categories[0] || "기타", createdAt: Date.now() }] }));
     setDeckId(id);
     close();
   }
-  function doRenameDeck(id: string, name: string) {
-    mutate(s => ({ ...s, decks: s.decks.map(d => d.deckId === id ? { ...d, name } : d) }));
+  function doRenameDeck(id: string, name: string, category: string) {
+    mutate(s => ({ ...s, decks: s.decks.map(d => d.deckId === id ? { ...d, name, category: category ?? d.category } : d) }));
     setSelected([]);
     close();
   }
@@ -2530,20 +2576,28 @@ function AnkiView({
     setSelected([]);
     close();
   }
-  function doAddCard(dk: string, type: "basic" | "cloze", front: string, back: string, text: string) {
+  function doAddCard(dk: string, type: "basic" | "reversed" | "cloze", front: string, back: string, text: string) {
     mutate(s => {
       if (type === "cloze") addClozeNote(s, dk, text, "", []);
+      else if (type === "reversed") addReversedNote(s, dk, front, back, []);
       else addBasicNote(s, dk, front, back, []);
       return s;
     });
     close();
   }
-  function doEditCard(noteId: string, type: "basic" | "cloze", front: string, back: string, text: string) {
+  function doEditCard(noteId: string, type: "basic" | "reversed" | "cloze", front: string, back: string, text: string) {
     mutate(s => {
       const n = s.notes.find(x => x.noteId === noteId);
       if (!n) return s;
-      if (type === "cloze") n.fields = { text, extra: "" };
-      else n.fields = { front, back };
+      if (type === "cloze") { n.type = "cloze"; n.reversed = false; n.fields = { text, extra: n.fields.extra || "" }; }
+      else {
+        n.type = "basic"; n.fields = { front, back };
+        const wantReversed = type === "reversed";
+        const hasRev = s.cards.some(c => c.noteId === noteId && c.ord === 1);
+        if (wantReversed && !hasRev) s.cards.push(newCard(noteId, n.deckId, 1));
+        if (!wantReversed && hasRev) s.cards = s.cards.filter(c => !(c.noteId === noteId && c.ord === 1));
+        n.reversed = wantReversed;
+      }
       return s;
     });
     close();
@@ -2578,7 +2632,7 @@ function AnkiView({
           </button>
         </div>
         {dialog?.kind === "addDeck" && (
-          <AnkiTextDialog title="새 덱" label="덱 이름" placeholder="예: 전공 - 자료구조" confirmLabel="만들기"
+          <AnkiDeckDialog title="새 덱" categories={categories} onManage={onManageCategories} confirmLabel="만들기"
             onClose={close} onConfirm={doAddDeck} />
         )}
       </>
@@ -2615,9 +2669,9 @@ function AnkiView({
                   {selected.length === 1 && (
                     <button className="chip-button" onClick={() => {
                       const d = anki.decks.find(x => x.deckId === selected[0]);
-                      if (d) setDialog({ kind: "renameDeck", id: d.deckId, name: d.name });
+                      if (d) setDialog({ kind: "renameDeck", id: d.deckId, name: d.name, category: d.category });
                     }}>
-                      <Pencil size={13} />이름 변경
+                      <Pencil size={13} />이름·카테고리
                     </button>
                   )}
                   {selected.length > 0 && (
@@ -2625,6 +2679,9 @@ function AnkiView({
                       <Trash2 size={13} />삭제 ({selected.length})
                     </button>
                   )}
+                  <button className="chip-button" onClick={onManageCategories}>
+                    <Settings2 size={13} />카테고리
+                  </button>
                   <button className="chip-button" onClick={() => setDialog({ kind: "addDeck" })}>
                     <Plus size={14} />덱 추가
                   </button>
@@ -2638,8 +2695,8 @@ function AnkiView({
                     {selected.length === 1 && (
                       <button className="dsb-btn" onClick={() => {
                         const d = anki.decks.find(x => x.deckId === selected[0]);
-                        if (d) setDialog({ kind: "renameDeck", id: d.deckId, name: d.name });
-                      }}>이름 변경</button>
+                        if (d) setDialog({ kind: "renameDeck", id: d.deckId, name: d.name, category: d.category });
+                      }}>이름·카테고리</button>
                     )}
                     <button className="dsb-btn danger" onClick={() => setDialog({ kind: "deleteDecks", ids: selected })}>삭제</button>
                   </div>
@@ -2655,7 +2712,7 @@ function AnkiView({
                       <input type="checkbox" className="deck-check" checked={isSel}
                         aria-label={`${d.name} 선택`} onChange={() => toggle(d.deckId)} />
                       <button className="deck-main" onClick={() => setDeckId(d.deckId)}>
-                        <strong>{d.name}</strong>
+                        <strong>{d.name}{d.category && <span className="deck-cat-chip">{d.category}</span>}</strong>
                         <span className="deck-counts">
                           <i className="dc new">{c.new}</i>
                           <i className="dc learn">{c.learn}</i>
@@ -2707,8 +2764,8 @@ function AnkiView({
                           <span className="card-row-front">{frontText.slice(0, 80)}</span>
                           <span className="card-row-back">{backText.slice(0, 60)}</span>
                         </div>
-                        <span className={`card-kind-tag ${n.type === "cloze" ? "cloze" : "basic"}`}>
-                          {n.type === "cloze" ? "빈칸" : "기본"}
+                        <span className={`card-kind-tag ${n.type === "cloze" ? "cloze" : n.reversed ? "reversed" : "basic"}`}>
+                          {n.type === "cloze" ? "빈칸" : n.reversed ? "양면" : "기본"}
                         </span>
                         <span className="log-int">{interval}일</span>
                         <div className="card-row-actions">
@@ -2754,12 +2811,13 @@ function AnkiView({
 
       {/* Dialogs */}
       {dialog?.kind === "addDeck" && (
-        <AnkiTextDialog title="새 덱" label="덱 이름" placeholder="예: 전공 - 자료구조" confirmLabel="만들기"
+        <AnkiDeckDialog title="새 덱" categories={categories} onManage={onManageCategories} confirmLabel="만들기"
           onClose={close} onConfirm={doAddDeck} />
       )}
       {dialog?.kind === "renameDeck" && (
-        <AnkiTextDialog title="덱 이름 변경" label="덱 이름" initial={dialog.name} confirmLabel="저장"
-          onClose={close} onConfirm={name => doRenameDeck(dialog.id, name)} />
+        <AnkiDeckDialog title="덱 편집" categories={categories} onManage={onManageCategories}
+          initial={{ name: dialog.name, category: dialog.category }} confirmLabel="저장"
+          onClose={close} onConfirm={(name, category) => doRenameDeck(dialog.id, name, category)} />
       )}
       {dialog?.kind === "deleteDecks" && (
         <AnkiConfirmDialog title="덱 삭제" danger confirmLabel="삭제"
@@ -2775,7 +2833,7 @@ function AnkiView({
         if (!n) return null;
         return (
           <AnkiCardDialog title="카드 편집" deckId={activeId} decks={anki.decks}
-            initial={{ type: n.type, front: n.fields.front, back: n.fields.back, text: n.fields.text }}
+            initial={{ type: n.type === "cloze" ? "cloze" : n.reversed ? "reversed" : "basic", front: n.fields.front, back: n.fields.back, text: n.fields.text }}
             confirmLabel="저장"
             onClose={close} onConfirm={(dk, type, front, back, text) => doEditCard(dialog.noteId, type, front, back, text)} />
         );
@@ -2842,11 +2900,12 @@ function ReviewModal({ queue, idx, backShown, anki, onReveal, onGrade, onClose }
                     const labels = ["Again", "Hard", "Good", "Easy"];
                     const subs = ["다시", "어려움", "알맞음", "쉬움"];
                     const cls = ["again", "hard", "good", "easy"];
+                    const lbl = peekLabel(card, g, anki.settings.learnSteps);
                     return (
                       <button key={g} className={`grade-btn ${cls[g]}`} onClick={() => onGrade(g)}>
                         {labels[g]}
                         <em>{subs[g]}</em>
-                        <small>{g + 1}</small>
+                        <small>{lbl}</small>
                       </button>
                     );
                   })}
@@ -2929,6 +2988,42 @@ const TUTOR_API = {
   model: "gemini-2.0-flash",
   systemPrompt: "당신은 친절하고 침착한 AI 학습 튜터입니다. 한국어로 답변하되, 코드 예제와 단계별 설명을 적극적으로 사용하세요. 답변은 학생이 직접 추론할 수 있도록 가이드하는 방향으로 작성하며, 지나치게 길지 않게 핵심을 짚어주세요.",
 };
+
+async function callSummaryAPI(title: string, content: string): Promise<string> {
+  const { endpoint, apiKey, model, provider } = TUTOR_API;
+  const sys = [
+    "너는 한국어 AI 학습 어시스턴트다. 학생이 이 자료만으로 복습할 수 있도록 깊이 있게 정리하라.",
+    "출력은 한국어 마크다운. 구조: ## 한 줄 요약 / ## 핵심 내용(5~8 불릿) / ## 주요 개념(용어: 설명) / ## 시험 대비 포인트(3~5) / ## 복습 질문(3개).",
+    "자료에 없는 내용은 지어내지 말 것."
+  ].join("\n");
+  const userMsg = `제목: ${title}\n\n${content.slice(0, 18000)}`;
+  if (!endpoint || !apiKey) throw new Error("API 미설정");
+  let url: string, headers: Record<string, string>, body: string;
+  if (provider === "openai") {
+    url = endpoint;
+    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
+    body = JSON.stringify({ model: model || "gpt-4o", messages: [{ role: "system", content: sys }, { role: "user", content: userMsg }] });
+  } else if (provider === "claude") {
+    url = endpoint;
+    headers = { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
+    body = JSON.stringify({ model: model || "claude-sonnet-4-5", max_tokens: 3000, system: sys, messages: [{ role: "user", content: userMsg }] });
+  } else if (provider === "gemini") {
+    url = `${endpoint}?key=${apiKey}`;
+    headers = { "Content-Type": "application/json" };
+    body = JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: "user", parts: [{ text: userMsg }] }], generationConfig: { temperature: 0.35, maxOutputTokens: 3000 } });
+  } else {
+    url = endpoint;
+    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
+    body = JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userMsg }] });
+  }
+  const res = await fetch(url, { method: "POST", headers, body });
+  if (!res.ok) throw new Error(`요약 API 오류 ${res.status}`);
+  const data = await res.json();
+  if (provider === "openai") return data.choices?.[0]?.message?.content || "";
+  if (provider === "claude") return data.content?.[0]?.text || "";
+  if (provider === "gemini") return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.content || data.text || "";
+}
 
 type TutorMsg = { role: "user" | "assistant"; content: string; ts: number; isError?: boolean };
 type TutorSession = { id: string; title: string; messages: TutorMsg[]; createdAt: number };
@@ -3651,11 +3746,14 @@ export default function Home() {
 
   async function requestSummary(title: string, content: string) {
     try {
-      const res = await fetch("/api/ai/summarize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as { summary: string };
-      return data.summary;
+      const out = await callSummaryAPI(title, content);
+      if (out && out.trim()) return out.trim();
+      throw new Error("빈 응답");
     } catch {
+      try {
+        const res = await fetch("/api/ai/summarize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
+        if (res.ok) { const data = await res.json(); return data.summary; }
+      } catch {}
       return summarizeLocally(title, content);
     }
   }
@@ -4066,6 +4164,7 @@ export default function Home() {
           <AnkiView
             anki={anki} setAnki={setAnki}
             deckId={ankiDeckId} setDeckId={setAnkiDeckId}
+            categories={categories} onManageCategories={() => setCatManagerOpen(true)}
             onStartReview={startReview}
           />
         )}

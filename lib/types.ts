@@ -154,6 +154,7 @@ export type AnkiGrade = 0 | 1 | 2 | 3;
 export interface AnkiDeck {
   deckId: string;
   name: string;
+  category?: string;
   createdAt: number;
 }
 
@@ -161,6 +162,7 @@ export interface AnkiNote {
   noteId: string;
   deckId: string;
   type: "basic" | "cloze";
+  reversed?: boolean;
   fields: { front?: string; back?: string; text?: string; extra?: string };
   tags: string[];
   createdAt: number;
