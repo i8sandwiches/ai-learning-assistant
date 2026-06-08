@@ -70,7 +70,11 @@ export async function generateGeminiText(prompt: string) {
       ],
       generationConfig: {
         temperature: 0.35,
-        maxOutputTokens: 1400
+        maxOutputTokens: 2048,
+        // gemini-2.5-flash는 thinking 모델이라 추론 토큰이 maxOutputTokens 예산을
+        // 함께 소비한다. 요약·퀴즈 생성엔 깊은 추론이 불필요하므로 끄고 예산 전부를
+        // 실제 답변에 쓴다(잘림 방지 + 속도/비용 개선).
+        thinkingConfig: { thinkingBudget: 0 }
       }
     })
   });
@@ -176,7 +180,7 @@ export async function extractTextFromPdfBase64(base64Data: string): Promise<stri
           ]
         }
       ],
-      generationConfig: { temperature: 0, maxOutputTokens: 8192 }
+      generationConfig: { temperature: 0, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } }
     })
   });
 
@@ -225,7 +229,7 @@ export async function answerFromMaterial(
     body: JSON.stringify({
       system_instruction: { parts: [{ text: systemInstruction }] },
       contents,
-      generationConfig: { temperature: 0.3, maxOutputTokens: 1024 }
+      generationConfig: { temperature: 0.3, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } }
     })
   });
 
