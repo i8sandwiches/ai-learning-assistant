@@ -2983,42 +2983,6 @@ function formatTimer(totalSeconds: number) {
    설정은 app/api/tutor/route.ts 상단 주석 참고.
    ============================================================ */
 
-async function callSummaryAPI(title: string, content: string): Promise<string> {
-  const { endpoint, apiKey, model, provider } = TUTOR_API;
-  const sys = [
-    "너는 한국어 AI 학습 어시스턴트다. 학생이 이 자료만으로 복습할 수 있도록 깊이 있게 정리하라.",
-    "출력은 한국어 마크다운. 구조: ## 한 줄 요약 / ## 핵심 내용(5~8 불릿) / ## 주요 개념(용어: 설명) / ## 시험 대비 포인트(3~5) / ## 복습 질문(3개).",
-    "자료에 없는 내용은 지어내지 말 것."
-  ].join("\n");
-  const userMsg = `제목: ${title}\n\n${content.slice(0, 18000)}`;
-  if (!endpoint || !apiKey) throw new Error("API 미설정");
-  let url: string, headers: Record<string, string>, body: string;
-  if (provider === "openai") {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-    body = JSON.stringify({ model: model || "gpt-4o", messages: [{ role: "system", content: sys }, { role: "user", content: userMsg }] });
-  } else if (provider === "claude") {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
-    body = JSON.stringify({ model: model || "claude-sonnet-4-5", max_tokens: 3000, system: sys, messages: [{ role: "user", content: userMsg }] });
-  } else if (provider === "gemini") {
-    url = `${endpoint}?key=${apiKey}`;
-    headers = { "Content-Type": "application/json" };
-    body = JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: "user", parts: [{ text: userMsg }] }], generationConfig: { temperature: 0.35, maxOutputTokens: 3000 } });
-  } else {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-    body = JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userMsg }] });
-  }
-  const res = await fetch(url, { method: "POST", headers, body });
-  if (!res.ok) throw new Error(`요약 API 오류 ${res.status}`);
-  const data = await res.json();
-  if (provider === "openai") return data.choices?.[0]?.message?.content || "";
-  if (provider === "claude") return data.content?.[0]?.text || "";
-  if (provider === "gemini") return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  return data.content || data.text || "";
-}
-
 type TutorMsg = { role: "user" | "assistant"; content: string; ts: number; isError?: boolean };
 type TutorSession = { id: string; title: string; messages: TutorMsg[]; createdAt: number };
 
@@ -3756,17 +3720,16 @@ export default function Home() {
   }
 
   async function requestSummary(title: string, content: string) {
+    // 요약은 서버 라우트(/api/ai/summarize)를 경유합니다. 키는 서버 환경변수에만 둡니다.
     try {
-      const out = await callSummaryAPI(title, content);
-      if (out && out.trim()) return out.trim();
-      throw new Error("빈 응답");
-    } catch {
-      try {
-        const res = await fetch("/api/ai/summarize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
-        if (res.ok) { const data = await res.json(); return data.summary; }
-      } catch {}
-      return summarizeLocally(title, content);
-    }
+      const res = await fetch("/api/ai/summarize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
+      if (res.ok) {
+        const data = await res.json();
+        const summary = (data?.summary || "").trim();
+        if (summary) return summary;
+      }
+    } catch {}
+    return summarizeLocally(title, content);
   }
 
   async function persistStore(payload: Record<string, unknown>) {
