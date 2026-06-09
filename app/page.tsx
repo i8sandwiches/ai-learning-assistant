@@ -176,6 +176,9 @@ const DEFAULT_TIMER_FAVS: TimerFav[] = [
   { id: "t1", name: "25분 집중", h: 0, m: 25, s: 0 },
   { id: "t2", name: "5분 휴식", h: 0, m: 5, s: 0 },
 ];
+
+const DEFAULT_NOTE_DRAFT = { title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " };
+
 const makeDefaultPreferences = (): UserPreferences => ({
   timetable: {},
   scheds: {},
@@ -1590,7 +1593,10 @@ function NotesView({
     const c = (noteDraft.markdownContent || "").trim();
     const t = (noteDraft.title || "").trim();
     if (!c && !t) return false;
-    if (!selectedNote) return true;
+    if (!selectedNote) {
+      if (c === DEFAULT_NOTE_DRAFT.markdownContent.trim() && t === DEFAULT_NOTE_DRAFT.title) return false;
+      return true;
+    }
     return c !== (selectedNote.markdownContent || "").trim() ||
       t !== (selectedNote.title || "").trim() ||
       (noteDraft.subject || "") !== (selectedNote.subject || "");
@@ -3451,7 +3457,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [selectedSummaryId, setSelectedSummaryId] = useState("");
   const [selectedNoteId, setSelectedNoteId] = useState("");
-  const [noteDraft, setNoteDraft] = useState({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
+  const [noteDraft, setNoteDraft] = useState(DEFAULT_NOTE_DRAFT);
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [uploadStatus, setUploadStatus] = useState("파일을 선택해 폴더에 자료를 업로드하세요.");
   // User preferences (timetable, calendar, categories, timer presets) — synced per-user via DB.
@@ -3961,7 +3967,7 @@ export default function Home() {
 
   function newNote() {
     setSelectedNoteId("");
-    setNoteDraft({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
+    setNoteDraft(DEFAULT_NOTE_DRAFT);
   }
 
   function deleteNote(noteId: string) {
