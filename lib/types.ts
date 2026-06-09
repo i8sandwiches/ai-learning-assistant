@@ -41,6 +41,7 @@ export interface StudyNote {
   markdownContent: string;
   subject: string;
   updatedAt: string;
+  source?: "tutor" | "manual";
 }
 
 export interface Quiz {

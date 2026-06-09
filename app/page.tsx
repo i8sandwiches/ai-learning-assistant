@@ -189,7 +189,7 @@ const NAV_ITEMS = [
   { id: "timetable",  icon: "calendar-days",  label: "시간표" },
   { id: "timer",      icon: "clock",          label: "포모도로" },
   { id: "notes",      icon: "book-open-text", label: "학습 노트" },
-  { id: "materials",  icon: "upload-cloud",   label: "자료/요약" },
+  { id: "materials",  icon: "sparkles",       label: "AI 정리요약" },
   { id: "tutor",      icon: "bot",            label: "AI 튜터" },
   { id: "anki",       icon: "layers",         label: "Anki" },
   { id: "stats",      icon: "flame",          label: "통계" },
@@ -646,6 +646,10 @@ function Sidebar({
                 <Icon name={it.icon} size={18} />{it.label}
               </button>
             ))}
+            <div className="nav-divider" />
+            <button className="nav-button nav-settings-btn" onClick={() => setAcctOpen(true)} aria-label="환경설정">
+              <Icon name="settings" size={18} />환경설정
+            </button>
           </nav>
         </div>
         <div className="sidebar-foot">
@@ -668,17 +672,16 @@ function Sidebar({
               )}
             </button>
           )}
-        </div>
-        <div className="user">
-          <button className="user-main" onClick={() => setAcctOpen(true)} aria-label="계정 관리">
-            <span className="user-avatar">{user.nickname.slice(0, 1).toUpperCase()}</span>
-            <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-              <div className="user-name">{user.nickname}</div>
-              <div className="user-sub">{user.email || `${user.provider} 로그인`}</div>
-            </div>
-            <Icon name="settings" size={15} />
-          </button>
-          <button className="user-logout" title="로그아웃" aria-label="로그아웃" onClick={onLogout}><Icon name="log-out" size={16} /></button>
+          <div className="user">
+            <button className="user-main" onClick={() => setAcctOpen(true)} aria-label="계정 관리">
+              <span className="user-avatar">{user.nickname.slice(0, 1).toUpperCase()}</span>
+              <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                <div className="user-name">{user.nickname}</div>
+                <div className="user-sub">{user.email || `${user.provider} 로그인`}</div>
+              </div>
+            </button>
+            <button className="user-logout" title="로그아웃" aria-label="로그아웃" onClick={onLogout}><Icon name="log-out" size={16} /></button>
+          </div>
         </div>
       </aside>
       {acctOpen && <AccountManager user={user} setUser={setUser} onLogout={onLogout} onClose={() => setAcctOpen(false)} />}
@@ -1312,7 +1315,72 @@ function MaterialsView({
     );
   }
 
-  const extraCats = [...new Set(materials.map(m => m.category || "기타"))].filter(c => !categories.includes(c));
+  function renderSummaryRow(s: Summary) {
+    const isFav = pinned.includes(s.summaryId);
+    const menuKey = "sum-" + s.summaryId;
+    if (editingSum?.summaryId === s.summaryId) {
+      return (
+        <div className="list-row mat-row mat-indent is-editing" key={s.summaryId}>
+          <Icon name="scroll" size={16} />
+          <input className="note-inline-input" autoFocus value={editingSum.value}
+            onChange={e => setEditingSum({ ...editingSum, value: e.target.value })}
+            onKeyDown={e => { if (e.key === "Enter") commitSumRename(); if (e.key === "Escape") setEditingSum(null); }}
+            onBlur={commitSumRename} aria-label="요약 이름 변경" />
+          <button className="note-ctx-btn" onMouseDown={e => e.preventDefault()} onClick={commitSumRename} aria-label="저장"><Icon name="check" size={14} /></button>
+        </div>
+      );
+    }
+    return (
+      <div className={`list-row mat-row mat-indent ${s.summaryId === selectedSummaryId ? "is-selected" : ""}`} key={s.summaryId}>
+        <Icon name="scroll" size={16} />
+        <button className="mat-file-info sum-row-info" onClick={() => onSelectSummary(s.summaryId)} aria-label={`${s.title} 미리보기`}>
+          <strong title={s.title}>{isFav && <span className="pin-dot"><Icon name="pin" size={10} /></span>}{s.title}</strong>
+          <span>{s.sourceType === "material" ? "자료 요약" : "노트 요약"}{s.category ? ` · ${s.category}` : ""}</span>
+        </button>
+        <div className="mat-actions">
+          <button className={`row-act-btn ${isFav ? "is-fav" : ""}`} onClick={() => togglePin(s.summaryId)} aria-label={isFav ? "고정 해제" : "고정"} title={isFav ? "고정 해제" : "고정"}><Icon name="pin" size={14} /></button>
+          <button className="row-act-btn" onClick={() => setEditingSum({ summaryId: s.summaryId, value: s.title })} aria-label="이름 변경" title="이름 변경"><Icon name="pencil" size={14} /></button>
+          <div className="note-ctx-wrap">
+            <button className="row-act-btn" onClick={() => { setSumMenu(sumMenu === menuKey ? null : menuKey); setSumSub(null); }} aria-label="요약 옵션" title="더보기"><Icon name="more-horizontal" size={14} /></button>
+            {sumMenu === menuKey && (
+              <div className="note-ctx-menu">
+                <button className={sumSub === "copy" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setSumSub(sumSub === "copy" ? null : "copy"); }}>
+                  <Icon name="copy" size={13} />폴더로 복사
+                  <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: sumSub === "copy" ? "rotate(90deg)" : "none" }} />
+                </button>
+                {sumSub === "copy" && (
+                  <div className="note-ctx-submenu">
+                    {categories.map(c => (
+                      <button key={c} onClick={() => { onCopySummaryToFolder(s.summaryId, c); setSumMenu(null); setSumSub(null); }}>
+                        <Icon name="folder" size={12} />{c}{c === s.category && <span className="ctx-cur">현재</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button className={sumSub === "move" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setSumSub(sumSub === "move" ? null : "move"); }}>
+                  <Icon name="folder-input" size={13} />다른 폴더로 이동
+                  <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: sumSub === "move" ? "rotate(90deg)" : "none" }} />
+                </button>
+                {sumSub === "move" && (
+                  <div className="note-ctx-submenu">
+                    {categories.filter(c => c !== s.category).map(c => (
+                      <button key={c} onClick={() => { onMoveSummaryToFolder(s.summaryId, c); setSumMenu(null); setSumSub(null); }}>
+                        <Icon name="folder" size={12} />{c}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button onClick={() => { togglePin(s.summaryId); setSumMenu(null); }}><Icon name="pin" size={13} />{isFav ? "고정 해제" : "고정"}</button>
+                <button className="danger" onClick={() => { onDeleteSummary(s.summaryId); setSumMenu(null); }}><Icon name="trash-2" size={13} />삭제</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const extraCats = [...new Set([...materials.map(m => m.category || "기타"), ...summaries.map(s => s.category || "기타")])].filter(c => !categories.includes(c));
   const allMatCats = [...categories, ...extraCats];
   const filteredCats = filterCat === "all" ? allMatCats : allMatCats.filter(c => c === filterCat);
   const favMats = materials.filter(m => pinnedMaterials.includes(m.materialId));
@@ -1349,119 +1417,40 @@ function MaterialsView({
             {openMCats.has("__fav__") && favMats.length === 0 && <p className="note-empty-cat" style={{ paddingLeft: 28 }}>즐겨찾기한 자료가 없습니다</p>}
             {openMCats.has("__fav__") && favMats.map(m => renderMatRow(m, "fav"))}
           </div>
-          {materials.length === 0
+          {materials.length === 0 && summaries.length === 0
             ? <p className="empty-text">아직 업로드한 자료가 없습니다.</p>
             : filteredCats.map(cat => {
               const catMats = materials.filter(m => (m.category || "기타") === cat);
+              const catSums = summaries.filter(s => (s.category || "기타") === cat);
+              const pinnedSums = catSums.filter(s => pinned.includes(s.summaryId));
+              const unpinnedSums = catSums.filter(s => !pinned.includes(s.summaryId));
+              const orderedSums = [...pinnedSums, ...unpinnedSums];
               const isOpen = openMCats.has(cat);
+              const total = catMats.length + catSums.length;
               return (
                 <div key={cat} className="mat-cat-group">
                   <button className="mat-cat-header" onClick={() => toggleMCat(cat)}>
                     <span className="mat-cat-chevron" style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}><Icon name="chevron-right" size={13} /></span>
                     <span className="mat-cat-name">{cat}</span>
-                    <span className="mat-cat-count">{catMats.length}</span>
+                    <span className="mat-cat-count">{total}</span>
                   </button>
-                  {isOpen && catMats.length === 0 && <p className="note-empty-cat" style={{ paddingLeft: 28 }}>자료가 없습니다</p>}
+                  {isOpen && total === 0 && <p className="note-empty-cat" style={{ paddingLeft: 28 }}>자료나 요약이 없습니다</p>}
+                  {isOpen && catMats.length > 0 && <p className="mat-sub-label">자료 {catMats.length}개</p>}
                   {isOpen && catMats.map(m => renderMatRow(m, cat))}
+                  {isOpen && catSums.length > 0 && <p className="mat-sub-label">요약 {catSums.length}개</p>}
+                  {isOpen && orderedSums.map(s => renderSummaryRow(s))}
                 </div>
               );
             })
           }
         </div>
       </section>
-      <section className="panel">
-        <div className="section-heading sum-heading-aligned">
-          <div className="sum-heading-left">
-            <h3>저장된 요약</h3>
-            <button className="chip-button sum-pin-always" style={{ marginLeft: "auto", flexShrink: 0 }}
-              disabled={selSums.length === 0 || (!selSums.every(id => pinned.includes(id)) && !canPin)}
-              onClick={() => { selSums.forEach(id => togglePin(id)); setSelSums([]); }}
-              title={selSums.length > 0 ? "선택한 요약 고정/해제" : "요약을 선택하면 고정할 수 있습니다"}>
-              <Icon name="pin" size={13} />
-              {selSums.length > 0 && selSums.every(id => pinned.includes(id)) ? "고정 해제" : `고정 ${pinned.length}/5`}
-            </button>
-          </div>
-          <div />
-          <div className="sum-heading-col3">
-            <div className="cat-filter-wrap note-ctx-wrap">
-              <button className="cat-filter cat-filter-btn" onClick={() => setFilterOpen(o => !o)} aria-label="카테고리 필터" aria-expanded={filterOpen}>
-                <span>{filterCat === "all" ? "전체 카테고리" : filterCat}</span>
-                <Icon name="chevron-down" size={12} style={{ transition: "transform .15s", transform: filterOpen ? "rotate(180deg)" : "none", flexShrink: 0 }} />
-              </button>
-              {filterOpen && (
-                <div className="note-ctx-menu cat-filter-menu">
-                  <button className={filterCat === "all" ? "is-active" : ""} onClick={() => { setFilterCat("all"); setFilterOpen(false); }}>전체 카테고리</button>
-                  {categories.map(c => <button key={c} className={filterCat === c ? "is-active" : ""} onClick={() => { setFilterCat(c); setFilterOpen(false); }}>{c}</button>)}
-                </div>
-              )}
-            </div>
-            <span className="sum-count">{sortedSums.length}개</span>
-          </div>
+      <section className="panel summary-preview-panel">
+        <div className="section-heading">
+          <h3>요약 미리보기</h3>
+          <span>{selectedSummary ? (selectedSummary.category || selectedSummary.title) : `요약 ${summaries.length}개`}</span>
         </div>
-        <div className="split-list">
-          <div className={`summary-list ${sumMenu ? "menu-open" : ""}`}>
-            {summaries.length === 0 ? <p className="empty-text">요약이 생성되면 이곳에 저장됩니다.</p> : sortedSums.map(s => {
-              if (editingSum?.summaryId === s.summaryId) {
-                return (
-                  <div key={s.summaryId} className="sum-row sum-row-editing">
-                    <Icon name="scroll" size={15} style={{ color: "var(--muted)", flexShrink: 0, marginLeft: 4 }} />
-                    <input className="note-inline-input" autoFocus value={editingSum.value}
-                      onChange={e => setEditingSum({ ...editingSum, value: e.target.value })}
-                      onKeyDown={e => { if (e.key === "Enter") commitSumRename(); if (e.key === "Escape") setEditingSum(null); }}
-                      onBlur={commitSumRename} aria-label="요약 이름 변경" />
-                    <button className="note-ctx-btn" onMouseDown={e => e.preventDefault()} onClick={commitSumRename} aria-label="저장"><Icon name="check" size={14} /></button>
-                  </div>
-                );
-              }
-              return (
-                <div key={s.summaryId} className={`sum-row ${selSums.includes(s.summaryId) ? "is-selected" : ""}`}>
-                  <input type="checkbox" className="row-check" checked={selSums.includes(s.summaryId)} onChange={() => toggleSum(s.summaryId)} aria-label={`${s.title} 선택`} />
-                  <button className={`summary-item ${s.summaryId === selectedSummaryId ? "active" : ""}`} onClick={() => onSelectSummary(s.summaryId)}>
-                    {pinned.includes(s.summaryId) && <span className="pin-dot"><Icon name="pin" size={10} /></span>}
-                    <strong>{s.title}</strong>
-                    <span className="sum-meta">{s.category && <span className="cat-chip">{s.category}</span>}{s.sourceType === "material" ? "자료 요약" : "노트 요약"}</span>
-                  </button>
-                  <div className="note-ctx-wrap">
-                    <button className="note-ctx-btn" aria-label="요약 옵션" onClick={() => { setSumMenu(sumMenu === s.summaryId ? null : s.summaryId); setSumSub(null); }}><Icon name="more-horizontal" size={14} /></button>
-                    {sumMenu === s.summaryId && (
-                      <div className="note-ctx-menu">
-                        <button onClick={() => { setEditingSum({ summaryId: s.summaryId, value: s.title }); setSumMenu(null); }}><Icon name="pencil" size={13} />이름 변경</button>
-                        <button className={sumSub === "copy" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setSumSub(sumSub === "copy" ? null : "copy"); }}>
-                          <Icon name="copy" size={13} />폴더로 복사
-                          <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: sumSub === "copy" ? "rotate(90deg)" : "none" }} />
-                        </button>
-                        {sumSub === "copy" && (
-                          <div className="note-ctx-submenu">
-                            {categories.map(c => (
-                              <button key={c} onClick={() => { onCopySummaryToFolder(s.summaryId, c); setSumMenu(null); setSumSub(null); }}>
-                                <Icon name="folder" size={12} />{c}{c === s.category && <span className="ctx-cur">현재</span>}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <button className={sumSub === "move" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setSumSub(sumSub === "move" ? null : "move"); }}>
-                          <Icon name="folder-input" size={13} />다른 폴더로 이동
-                          <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: sumSub === "move" ? "rotate(90deg)" : "none" }} />
-                        </button>
-                        {sumSub === "move" && (
-                          <div className="note-ctx-submenu">
-                            {categories.filter(c => c !== s.category).map(c => (
-                              <button key={c} onClick={() => { onMoveSummaryToFolder(s.summaryId, c); setSumMenu(null); setSumSub(null); }}>
-                                <Icon name="folder" size={12} />{c}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <button onClick={() => { togglePin(s.summaryId); setSumMenu(null); }}><Icon name="pin" size={13} />{pinned.includes(s.summaryId) ? "고정 해제" : "고정"}</button>
-                        <button className="danger" onClick={() => { onDeleteSummary(s.summaryId); setSumMenu(null); }}><Icon name="trash-2" size={13} />삭제</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="split-divider" />
+        <div className="summary-detail-wrap">
           <article className="summary-detail">
             {selectedSummary ? (editSel ? (
               <div className="summary-edit">
@@ -1518,6 +1507,7 @@ function NotesView({
   notes, categories, onManageCategories, selectedNote, selectedNoteId, noteDraft,
   onSelectNote, onDraftChange, onSave, onNew, onDelete, onAddCategory, onRenameCategory, onDeleteCategory,
   onRenameNote, onMoveNote, pinnedNotes = [], onTogglePinNote, summaries = [], onGoToSummary, onDeleteSummary,
+  onUpdateSummary, onCopySummaryToFolder, onMoveSummaryToFolder,
   editingSummary, editingSummaryId, summaryDraft, onSummaryDraftChange, onSaveSummary, onCloseSummary, onDirtyChange,
 }: {
   notes: StudyNote[];
@@ -1541,6 +1531,9 @@ function NotesView({
   summaries?: Summary[];
   onGoToSummary: (id: string) => void;
   onDeleteSummary: (id: string) => void;
+  onUpdateSummary: (id: string, patch: Partial<Summary>) => void;
+  onCopySummaryToFolder: (id: string, category: string) => void;
+  onMoveSummaryToFolder: (id: string, category: string) => void;
   editingSummary?: Summary | null;
   editingSummaryId: string | null;
   summaryDraft: SummaryDraft;
@@ -1581,6 +1574,11 @@ function NotesView({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [moveSubMenu, setMoveSubMenu] = useState<string | null>(null);
   const [pendingNav, setPendingNav] = useState<{ kind: "select" | "new" | "summary"; id?: string } | null>(null);
+  // [H] note summary-row context menu
+  const [noteSumMenu, setNoteSumMenu] = useState<string | null>(null);
+  const [noteSumSub, setNoteSumSub] = useState<string | null>(null);
+  const [editingNoteSumId, setEditingNoteSumId] = useState<string | null>(null);
+  const [editingNoteSumVal, setEditingNoteSumVal] = useState("");
 
   const isDirty = useMemo(() => {
     if (editingSummaryId) return false;
@@ -1635,6 +1633,13 @@ function NotesView({
     return () => document.removeEventListener("mousedown", close);
   }, [openMenu]);
 
+  useEffect(() => {
+    if (!noteSumMenu) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".note-ctx-wrap")) { setNoteSumMenu(null); setNoteSumSub(null); } };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [noteSumMenu]);
+
   function commitCatRename() { if (editingCat?.value.trim()) onRenameCategory(editingCat.name, editingCat.value.trim()); setEditingCat(null); }
   function commitNoteRename() { if (editingNote?.value.trim()) onRenameNote(editingNote.noteId, editingNote.value.trim()); setEditingNote(null); }
   function commitAddCat() { if (newCatName.trim()) onAddCategory(newCatName.trim()); setAddingCat(false); setNewCatName(""); }
@@ -1663,7 +1668,10 @@ function NotesView({
           {openCats.has("__fav__") && pinnedNoteObjects.map(note => (
             <div key={note.noteId} className={`note-list-row ${note.noteId === selectedNoteId ? "active" : ""}`}>
               <button className="note-list-item" onClick={() => trySelect(note.noteId)}>
-                <strong>{note.title}</strong>
+                <strong>
+                  {note.source === "tutor" && <span className="note-tutor-badge"><Icon name="bot" size={10} />AI</span>}
+                  {note.title}
+                </strong>
                 <span>{note.subject} · {new Date(note.updatedAt).toLocaleDateString("ko-KR")}</span>
               </button>
               <button className="note-ctx-btn" style={{ opacity: 1, color: "oklch(0.68 0.15 78)" }} onClick={() => onTogglePinNote(note.noteId)} aria-label="즐겨찾기 해제" title="즐겨찾기 해제"><Icon name="star" size={13} /></button>
@@ -1715,7 +1723,10 @@ function NotesView({
                           onBlur={commitNoteRename}
                           onKeyDown={e => { if (e.key === "Enter") commitNoteRename(); if (e.key === "Escape") setEditingNote(null); }} />
                       : <button className="note-list-item" onClick={() => trySelect(note.noteId)}>
-                          <strong>{note.title}</strong>
+                          <strong>
+                            {note.source === "tutor" && <span className="note-tutor-badge"><Icon name="bot" size={10} />AI</span>}
+                            {note.title}
+                          </strong>
                           <span>{new Date(note.updatedAt).toLocaleDateString("ko-KR")}</span>
                         </button>
                     }
@@ -1751,11 +1762,65 @@ function NotesView({
               {isOpen && (summariesByCategory[cat] || []).map(sum => (
                 <div key={sum.summaryId} className="note-sum-row">
                   <Icon name="scroll" size={13} />
-                  <button className="note-sum-btn" onClick={() => tryGoToSummary(sum.summaryId)} style={editingSummaryId === sum.summaryId ? { color: "var(--accent-ink)", fontWeight: 600 } : undefined}>
-                    <strong>{sum.title}</strong>
-                    <span>{sum.sourceType === "note" ? "노트 요약" : "자료 요약"}</span>
-                  </button>
-                  <button className="note-ctx-btn" onClick={() => onDeleteSummary(sum.summaryId)} aria-label="요약 삭제"><Icon name="trash-2" size={12} /></button>
+                  {editingNoteSumId === sum.summaryId ? (
+                    <input
+                      autoFocus value={editingNoteSumVal}
+                      onChange={e => setEditingNoteSumVal(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { onUpdateSummary(sum.summaryId, { title: editingNoteSumVal }); setEditingNoteSumId(null); }
+                        if (e.key === "Escape") setEditingNoteSumId(null);
+                      }}
+                      onBlur={() => { onUpdateSummary(sum.summaryId, { title: editingNoteSumVal }); setEditingNoteSumId(null); }}
+                      className="note-inline-input"
+                    />
+                  ) : (
+                    <button className="note-sum-btn" onClick={() => tryGoToSummary(sum.summaryId)} style={editingSummaryId === sum.summaryId ? { color: "var(--accent-ink)", fontWeight: 600 } : undefined}>
+                      <strong>{sum.title}</strong>
+                      <span>{sum.sourceType === "note" ? "노트 요약" : "자료 요약"}</span>
+                    </button>
+                  )}
+                  <div className="note-ctx-wrap" style={{ position: "relative" }}>
+                    <button className="note-ctx-btn"
+                      onClick={() => { setNoteSumMenu(noteSumMenu === sum.summaryId ? null : sum.summaryId); setNoteSumSub(null); }} aria-label="요약 옵션">
+                      <Icon name="more-horizontal" size={13} />
+                    </button>
+                    {noteSumMenu === sum.summaryId && (
+                      <div className="note-ctx-menu" style={{ right: 0 }}>
+                        <button onClick={() => { setEditingNoteSumId(sum.summaryId); setEditingNoteSumVal(sum.title); setNoteSumMenu(null); }}>
+                          <Icon name="pencil" size={13} />이름 변경
+                        </button>
+                        <button className={noteSumSub === "copy" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setNoteSumSub(noteSumSub === "copy" ? null : "copy"); }}>
+                          <Icon name="copy" size={13} />폴더로 복사
+                          <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: noteSumSub === "copy" ? "rotate(90deg)" : "none" }} />
+                        </button>
+                        {noteSumSub === "copy" && (
+                          <div className="note-ctx-submenu">
+                            {categories.map(c => (
+                              <button key={c} onClick={() => { onCopySummaryToFolder(sum.summaryId, c); setNoteSumMenu(null); setNoteSumSub(null); }}>
+                                <Icon name="folder" size={12} />{c}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <button className={noteSumSub === "move" ? "is-expanded" : ""} onClick={e => { e.stopPropagation(); setNoteSumSub(noteSumSub === "move" ? null : "move"); }}>
+                          <Icon name="folder-input" size={13} />다른 폴더로 이동
+                          <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: noteSumSub === "move" ? "rotate(90deg)" : "none" }} />
+                        </button>
+                        {noteSumSub === "move" && (
+                          <div className="note-ctx-submenu">
+                            {categories.filter(c => c !== sum.category).map(c => (
+                              <button key={c} onClick={() => { onMoveSummaryToFolder(sum.summaryId, c); setNoteSumMenu(null); setNoteSumSub(null); }}>
+                                <Icon name="folder" size={12} />{c}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <button className="danger" onClick={() => { onDeleteSummary(sum.summaryId); setNoteSumMenu(null); }}>
+                          <Icon name="trash-2" size={13} />삭제
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -2646,12 +2711,13 @@ function AnkiView({
       <div className="anki-main-full">
         <div className="anki-seg-wrap">
           <div className="segmented">
-            {(["today", "browse", "stats"] as const).map(v => (
+            <button className={sub === "today" ? "active" : ""} onClick={() => setSub("today")}>덱</button>
+            <button onClick={() => setDialog({ kind: "addCard" })}>추가</button>
+            {(["browse", "stats"] as const).map(v => (
               <button key={v} className={sub === v ? "active" : ""} onClick={() => setSub(v)}>
-                {{ today: "덱", browse: "탐색", stats: "통계" }[v]}
+                {{ browse: "탐색", stats: "통계" }[v]}
               </button>
             ))}
-            <button onClick={() => setDialog({ kind: "addCard" })}>추가</button>
           </div>
         </div>
 
@@ -3129,15 +3195,32 @@ function TutorCodeBlock({ lang, content }: { lang?: string; content: string }) {
   );
 }
 
-function TutorView() {
+function TutorView({ categories, notes, onAddNote }: {
+  categories: string[];
+  notes: StudyNote[];
+  onAddNote: (input: { title: string; subject: string; markdownContent: string; source?: "tutor" | "manual" }) => void;
+}) {
   const [sessions, setSessions] = useState<TutorSession[]>(() => (typeof window !== "undefined" ? loadTutorSessions() : []));
   const [activeId, setActiveId] = useState<string | null>(() => (typeof window !== "undefined" ? loadTutorSessions()[0]?.id || null : null));
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // [D] session context menu state
+  const [sessMenu, setSessMenu] = useState<string | null>(null);
+  const [sessSaveMenu, setSessSaveMenu] = useState<string | null>(null);
+  const [sessRenaming, setSessRenaming] = useState<{ id: string; value: string } | null>(null);
+  // [E] note folder accordion state
+  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
+
   useEffect(() => { saveTutorSessions(sessions); }, [sessions]);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [activeId, sessions]);
+  useEffect(() => {
+    if (!sessMenu) return;
+    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".note-ctx-wrap")) { setSessMenu(null); setSessSaveMenu(null); } };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [sessMenu]);
 
   const active = sessions.find(s => s.id === activeId);
   const isConfigured = !!(TUTOR_API.endpoint && TUTOR_API.apiKey);
@@ -3151,6 +3234,20 @@ function TutorView() {
   function deleteSession(id: string) {
     setSessions(prev => prev.filter(s => s.id !== id));
     if (activeId === id) setActiveId(sessions.find(s => s.id !== id)?.id || null);
+  }
+  function renameSession(id: string, title: string) {
+    if (!title.trim()) return;
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, title: title.trim() } : s));
+  }
+  function saveSessionAsNote(session: TutorSession, category: string) {
+    if (!session || session.messages.length === 0) return;
+    const md = session.messages
+      .map(m => `## ${m.role === "user" ? "나" : "AI 튜터"}\n\n${m.content}`)
+      .join("\n\n---\n\n");
+    onAddNote({ title: session.title || "AI 튜터 대화", subject: category, markdownContent: md, source: "tutor" });
+  }
+  function toggleFolder(cat: string) {
+    setOpenFolders(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
   }
 
   async function send(prompt?: string) {
@@ -3198,15 +3295,98 @@ function TutorView() {
         <div className="tutor-rail-section">
           <h4 className="tutor-rail-head">최근 세션</h4>
           {sessions.length === 0 && <p className="tutor-rail-empty">아직 세션이 없어요</p>}
-          {sessions.map(s => (
-            <div key={s.id} className={`tutor-session-row ${s.id === activeId ? "active" : ""}`}>
-              <button className="tutor-session-btn" onClick={() => setActiveId(s.id)}>
+          {sessions.map(s => {
+            if (sessRenaming?.id === s.id) return (
+              <div key={s.id} className="tutor-session-row is-renaming">
                 <Icon name="message-square" size={14} />
-                <span>{s.title || "이름 없음"}</span>
-              </button>
-              <button className="tutor-session-del" onClick={() => deleteSession(s.id)} aria-label="삭제"><Icon name="x" size={12} /></button>
-            </div>
-          ))}
+                <input
+                  autoFocus value={sessRenaming.value}
+                  onChange={e => setSessRenaming({ ...sessRenaming, value: e.target.value })}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") { renameSession(s.id, sessRenaming.value); setSessRenaming(null); }
+                    if (e.key === "Escape") setSessRenaming(null);
+                  }}
+                  onBlur={() => { renameSession(s.id, sessRenaming.value); setSessRenaming(null); }}
+                  className="tutor-session-rename-input"
+                />
+              </div>
+            );
+            return (
+              <div key={s.id} className={`tutor-session-row ${s.id === activeId ? "active" : ""}`}>
+                <button className="tutor-session-btn" onClick={() => setActiveId(s.id)}>
+                  <Icon name="message-square" size={14} />
+                  <span>{s.title || "이름 없음"}</span>
+                </button>
+                <div className="note-ctx-wrap" style={{ position: "relative" }}>
+                  <button className="tutor-session-del"
+                    onClick={e => { e.stopPropagation(); setSessMenu(sessMenu === s.id ? null : s.id); setSessSaveMenu(null); }} aria-label="세션 옵션">
+                    <Icon name="more-horizontal" size={13} />
+                  </button>
+                  {sessMenu === s.id && (
+                    <div className="note-ctx-menu" style={{ right: 0, minWidth: 160 }}>
+                      <button onClick={() => { setSessRenaming({ id: s.id, value: s.title || "" }); setSessMenu(null); }}>
+                        <Icon name="pencil" size={13} />이름 변경
+                      </button>
+                      <button
+                        className={sessSaveMenu === s.id ? "is-expanded" : ""}
+                        onClick={e => { e.stopPropagation(); setSessSaveMenu(sessSaveMenu === s.id ? null : s.id); }}
+                      >
+                        <Icon name="folder-input" size={13} />노트로 저장
+                        <Icon name="chevron-right" size={11} style={{ marginLeft: "auto", transition: "transform .12s", transform: sessSaveMenu === s.id ? "rotate(90deg)" : "none" }} />
+                      </button>
+                      {sessSaveMenu === s.id && (
+                        <div className="note-ctx-submenu">
+                          {categories.map(c => (
+                            <button key={c} onClick={() => { saveSessionAsNote(s, c); setSessMenu(null); setSessSaveMenu(null); }}>
+                              <Icon name="folder" size={12} />{c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <button className="danger" onClick={() => { deleteSession(s.id); setSessMenu(null); }}>
+                        <Icon name="trash-2" size={13} />삭제
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="tutor-rail-section">
+          <h4 className="tutor-rail-head">노트 폴더</h4>
+          {categories.map(c => {
+            const folderNotes = notes.filter(n => (n.subject || "기타") === c);
+            const isOpen = openFolders.has(c);
+            return (
+              <div key={c} className="tutor-folder-group">
+                <div className="tutor-folder-item">
+                  <button className="tutor-folder-toggle" onClick={() => toggleFolder(c)}>
+                    <Icon name="folder" size={14} />
+                    <span className="tutor-folder-name">{c}</span>
+                    <span className="tutor-folder-count">{folderNotes.length}</span>
+                  </button>
+                  <button className="tutor-folder-chevron-btn" onClick={() => toggleFolder(c)} aria-label={isOpen ? "접기" : "펼치기"}>
+                    <Icon name="chevron-right" size={13} style={{ transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "none" }} />
+                  </button>
+                </div>
+                {isOpen && (
+                  <div className="tutor-folder-notes">
+                    {folderNotes.length === 0
+                      ? <p className="tutor-folder-empty">저장된 노트가 없어요</p>
+                      : folderNotes.map(n => (
+                        <div key={n.noteId} className="tutor-note-row">
+                          <Icon name="file-text" size={12} />
+                          <span>{n.title}</span>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </aside>
 
@@ -3786,6 +3966,19 @@ export default function Home() {
     void persistStore({ operation: "upsertNote", userId: currentUser.userId, note });
   }
 
+  function addNote(input: { title: string; subject: string; markdownContent: string; source?: "tutor" | "manual" }) {
+    if (!currentUser) return;
+    const note: StudyNote = {
+      noteId: createId("note"), userId: currentUser.userId,
+      title: input.title.trim() || "제목 없음", subject: input.subject || "기타",
+      markdownContent: input.markdownContent, updatedAt: new Date().toISOString(),
+      source: input.source || "manual",
+    };
+    setState(prev => ({ ...prev, notes: [note, ...prev.notes] }));
+    void persistStore({ operation: "upsertNote", userId: currentUser.userId, note });
+    pushToast(`'${note.subject}' 폴더에 노트로 저장했어요`, { accent: true, icon: "bot" });
+  }
+
   function newNote() {
     setSelectedNoteId("");
     setNoteDraft({ title: "새 학습 노트", subject: "기타", markdownContent: "## 오늘의 핵심\n- " });
@@ -4133,6 +4326,7 @@ export default function Home() {
             pinnedNotes={pinnedNotes} onTogglePinNote={togglePinNote}
             summaries={userSummaries} onGoToSummary={setEditingSummaryId}
             onDeleteSummary={id => { deleteSummary(id); if (id === editingSummaryId) setEditingSummaryId(null); }}
+            onUpdateSummary={updateSummary} onCopySummaryToFolder={copySummaryToFolder} onMoveSummaryToFolder={moveSummaryToFolder}
             editingSummary={editingSummary} editingSummaryId={editingSummaryId}
             summaryDraft={summaryDraft} onSummaryDraftChange={setSummaryDraft}
             onSaveSummary={saveSummary} onCloseSummary={() => setEditingSummaryId(null)}
@@ -4140,7 +4334,13 @@ export default function Home() {
           />
         )}
 
-        {activeTab === "tutor" && <TutorView />}
+        {activeTab === "tutor" && (
+          <TutorView
+            categories={categories}
+            notes={userNotes}
+            onAddNote={addNote}
+          />
+        )}
 
         {activeTab === "timer" && (
           <TimerView
