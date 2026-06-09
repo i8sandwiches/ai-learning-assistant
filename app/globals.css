@@ -1174,7 +1174,7 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 
 
 /* ===== AI Tutor ===== */
-.tutor-layout { display: grid; grid-template-columns: 220px minmax(0,1fr) 280px; gap: 16px; min-height: calc(100vh - 140px); }
+.tutor-layout { display: grid; grid-template-columns: 264px minmax(0,1fr); gap: 16px; min-height: calc(100vh - 140px); }
 .tutor-rail { display: flex; flex-direction: column; gap: 14px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .tutor-new-btn { width: 100%; justify-content: center; }
 .tutor-rail-section { display: flex; flex-direction: column; gap: 4px; }
@@ -1277,7 +1277,7 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 .tutor-config-note code { padding: 1px 4px; background: rgba(0,0,0,.06); border-radius: 3px; font-family: var(--font-mono, ui-monospace, monospace); font-size: .92em; }
 
 @media (max-width: 1100px) {
-  .tutor-layout { grid-template-columns: 200px minmax(0,1fr); }
+  .tutor-layout { grid-template-columns: 240px minmax(0,1fr); }
   .tutor-context-rail { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
   .tutor-context-rail > * { flex: 1; min-width: 240px; }
 }
