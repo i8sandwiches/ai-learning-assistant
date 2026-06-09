@@ -1152,12 +1152,17 @@ function SessionPanel({ sessions, onDeleteSession }: {
 }) {
   const [selected, setSelected] = useState<string[]>([]);
   const toggle = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const allSelected = sessions.length > 0 && selected.length === sessions.length;
+  const toggleAll = () => setSelected(allSelected ? [] : sessions.map(s => s.sessionId));
   return (
     <>
       <div className="section-heading">
         <h3>자동 기록</h3>
         {selected.length > 0 ? (
           <div style={{ display: "flex", gap: 6 }}>
+            <button className="chip-button" onClick={toggleAll}>
+              <Icon name={allSelected ? "check" : "square"} size={13} />{allSelected ? "전체 해제" : "모두 선택"}
+            </button>
             <button className="chip-button danger" onClick={() => { onDeleteSession(selected); setSelected([]); }}><Trash2 size={13} />삭제 ({selected.length})</button>
             <button className="chip-button" onClick={() => setSelected([])}><X size={13} />취소</button>
           </div>
