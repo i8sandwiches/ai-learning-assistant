@@ -3042,102 +3042,54 @@ function formatTimer(totalSeconds: number) {
 }
 
 /* ============================================================
-   AI Tutor
+   AI Tutor — 서버 프록시(/api/tutor) 경유
    ============================================================
-   Gemini API 연동: 아래 apiKey에 https://aistudio.google.com/apikey 에서
-   발급받은 키만 넣으면 됩니다. (endpoint/model/provider는 그대로)
+   API 키는 서버 전용 환경변수(.env.local / Vercel)에 둡니다.
+   NEXT_PUBLIC_ 접두사가 없으므로 브라우저에 노출되지 않습니다.
+   설정은 app/api/tutor/route.ts 상단 주석 참고.
    ============================================================ */
-const TUTOR_API = {
-  provider: "gemini" as "gemini" | "openai" | "claude" | "custom",
-  endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-  apiKey: "",
-  model: "gemini-2.0-flash",
-  systemPrompt: "당신은 친절하고 침착한 AI 학습 튜터입니다. 한국어로 답변하되, 코드 예제와 단계별 설명을 적극적으로 사용하세요. 답변은 학생이 직접 추론할 수 있도록 가이드하는 방향으로 작성하며, 지나치게 길지 않게 핵심을 짚어주세요.",
-};
-
-async function callSummaryAPI(title: string, content: string): Promise<string> {
-  const { endpoint, apiKey, model, provider } = TUTOR_API;
-  const sys = [
-    "너는 한국어 AI 학습 어시스턴트다. 학생이 이 자료만으로 복습할 수 있도록 깊이 있게 정리하라.",
-    "출력은 한국어 마크다운. 구조: ## 한 줄 요약 / ## 핵심 내용(5~8 불릿) / ## 주요 개념(용어: 설명) / ## 시험 대비 포인트(3~5) / ## 복습 질문(3개).",
-    "자료에 없는 내용은 지어내지 말 것."
-  ].join("\n");
-  const userMsg = `제목: ${title}\n\n${content.slice(0, 18000)}`;
-  if (!endpoint || !apiKey) throw new Error("API 미설정");
-  let url: string, headers: Record<string, string>, body: string;
-  if (provider === "openai") {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-    body = JSON.stringify({ model: model || "gpt-4o", messages: [{ role: "system", content: sys }, { role: "user", content: userMsg }] });
-  } else if (provider === "claude") {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
-    body = JSON.stringify({ model: model || "claude-sonnet-4-5", max_tokens: 3000, system: sys, messages: [{ role: "user", content: userMsg }] });
-  } else if (provider === "gemini") {
-    url = `${endpoint}?key=${apiKey}`;
-    headers = { "Content-Type": "application/json" };
-    body = JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: "user", parts: [{ text: userMsg }] }], generationConfig: { temperature: 0.35, maxOutputTokens: 3000 } });
-  } else {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-    body = JSON.stringify({ model, messages: [{ role: "system", content: sys }, { role: "user", content: userMsg }] });
-  }
-  const res = await fetch(url, { method: "POST", headers, body });
-  if (!res.ok) throw new Error(`요약 API 오류 ${res.status}`);
-  const data = await res.json();
-  if (provider === "openai") return data.choices?.[0]?.message?.content || "";
-  if (provider === "claude") return data.content?.[0]?.text || "";
-  if (provider === "gemini") return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  return data.content || data.text || "";
-}
 
 type TutorMsg = { role: "user" | "assistant"; content: string; ts: number; isError?: boolean };
 type TutorSession = { id: string; title: string; messages: TutorMsg[]; createdAt: number };
 
 async function callTutorAPI(messages: { role: string; content: string }[]) {
-  const { endpoint, apiKey, model, provider, systemPrompt } = TUTOR_API;
-  if (!endpoint || !apiKey) {
-    await new Promise(r => setTimeout(r, 800 + Math.random() * 600));
-    const last = messages[messages.length - 1]?.content || "";
-    return `**(데모 모드)** 실제 응답을 받으려면 \`page.tsx\`의 \`TUTOR_API\` 객체에 endpoint와 apiKey를 입력하세요.\n\n질문: "${last.slice(0, 80)}${last.length > 80 ? "…" : ""}"\n\n좋은 질문입니다. 이 주제를 이해하려면 세 가지를 살펴보면 좋습니다:\n\n1. **기본 개념** — 가장 단순한 형태부터 시작\n2. **핵심 패턴** — 반복되는 구조 파악\n3. **응용** — 실제 문제에 적용\n\n\`\`\`python\ndef example(n):\n    if n <= 1:\n        return n\n    return example(n - 1) + example(n - 2)\n\`\`\`\n\n어느 부분부터 더 깊이 살펴볼까요?`;
-  }
-  let url: string, headers: Record<string, string>, body: string;
-  if (provider === "claude") {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
-    body = JSON.stringify({ model: model || "claude-sonnet-4-5", max_tokens: 2048, system: systemPrompt, messages });
-  } else if (provider === "openai") {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-    body = JSON.stringify({ model: model || "gpt-4o", messages: [{ role: "system", content: systemPrompt }, ...messages] });
-  } else if (provider === "gemini") {
-    const cleaned = messages.filter(m => m.content?.trim());
-    url = `${endpoint}?key=${apiKey}`;
-    headers = { "Content-Type": "application/json" };
-    body = JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: cleaned.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-    });
-  } else {
-    url = endpoint;
-    headers = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-    body = JSON.stringify({ model, messages });
-  }
-  const res = await fetch(url, { method: "POST", headers, body });
-  if (!res.ok) throw new Error(`API 오류 ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  if (provider === "claude") return data.content?.[0]?.text || "";
-  if (provider === "openai") return data.choices?.[0]?.message?.content || "";
-  if (provider === "gemini") return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  return data.content || data.text || data.message || JSON.stringify(data);
+  const res = await fetch("/api/tutor", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || `API 오류 ${res.status}`);
+  return (data.reply as string) || "";
 }
 
-function loadTutorSessions(): TutorSession[] {
-  try { return JSON.parse(localStorage.getItem("hak.tutor.sessions") || "[]"); } catch { return []; }
+async function fetchTutorConfigured(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/tutor");
+    const data = await res.json();
+    return !!data.configured;
+  } catch {
+    return false;
+  }
 }
-function saveTutorSessions(s: TutorSession[]) {
-  try { localStorage.setItem("hak.tutor.sessions", JSON.stringify(s.slice(0, 20))); } catch {}
+
+// 유저별 튜터 대화는 DB(/api/tutor/sessions)에 저장되어 기기 간 동기화됩니다.
+async function loadTutorSessions(userId: string): Promise<TutorSession[]> {
+  try {
+    const res = await fetch(`/api/tutor/sessions?userId=${encodeURIComponent(userId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.sessions) ? data.sessions : [];
+  } catch { return []; }
+}
+async function saveTutorSessions(userId: string, sessions: TutorSession[]) {
+  try {
+    await fetch("/api/tutor/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, sessions: sessions.slice(0, 20) }),
+    });
+  } catch {}
 }
 
 function renderTutorMsg(text: string): Array<{ type: "text" | "code"; content: string; lang?: string; key: number }> {
@@ -3195,15 +3147,18 @@ function TutorCodeBlock({ lang, content }: { lang?: string; content: string }) {
   );
 }
 
-function TutorView({ categories, notes, onAddNote }: {
+function TutorView({ userId, categories, notes, onAddNote }: {
+  userId: string;
   categories: string[];
   notes: StudyNote[];
   onAddNote: (input: { title: string; subject: string; markdownContent: string; source?: "tutor" | "manual" }) => void;
 }) {
-  const [sessions, setSessions] = useState<TutorSession[]>(() => (typeof window !== "undefined" ? loadTutorSessions() : []));
-  const [activeId, setActiveId] = useState<string | null>(() => (typeof window !== "undefined" ? loadTutorSessions()[0]?.id || null : null));
+  const [sessions, setSessions] = useState<TutorSession[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const loadedUserRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // [D] session context menu state
@@ -3213,7 +3168,27 @@ function TutorView({ categories, notes, onAddNote }: {
   // [E] note folder accordion state
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
 
-  useEffect(() => { saveTutorSessions(sessions); }, [sessions]);
+  // 로그인한 계정의 대화를 DB에서 불러옵니다 (계정별·기기 간 동기화).
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    loadTutorSessions(userId).then(loadedSessions => {
+      if (cancelled) return;
+      setSessions(loadedSessions);
+      setActiveId(loadedSessions[0]?.id ?? null);
+      loadedUserRef.current = userId;
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // 변경분을 디바운스 후 DB에 저장 (해당 계정의 데이터가 로드된 뒤에만).
+  useEffect(() => {
+    if (!loaded || loadedUserRef.current !== userId) return;
+    const handle = window.setTimeout(() => { void saveTutorSessions(userId, sessions); }, 600);
+    return () => window.clearTimeout(handle);
+  }, [sessions, loaded, userId]);
+
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [activeId, sessions]);
   useEffect(() => {
     if (!sessMenu) return;
@@ -3223,7 +3198,8 @@ function TutorView({ categories, notes, onAddNote }: {
   }, [sessMenu]);
 
   const active = sessions.find(s => s.id === activeId);
-  const isConfigured = !!(TUTOR_API.endpoint && TUTOR_API.apiKey);
+  const [isConfigured, setIsConfigured] = useState(false);
+  useEffect(() => { fetchTutorConfigured().then(setIsConfigured); }, []);
 
   function newSession() {
     const id = createId("tutor");
@@ -3925,17 +3901,16 @@ export default function Home() {
   }
 
   async function requestSummary(title: string, content: string) {
+    // 요약은 서버 라우트(/api/ai/summarize)를 경유합니다. 키는 서버 환경변수에만 둡니다.
     try {
-      const out = await callSummaryAPI(title, content);
-      if (out && out.trim()) return out.trim();
-      throw new Error("빈 응답");
-    } catch {
-      try {
-        const res = await fetch("/api/ai/summarize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
-        if (res.ok) { const data = await res.json(); return data.summary; }
-      } catch {}
-      return summarizeLocally(title, content);
-    }
+      const res = await fetch("/api/ai/summarize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
+      if (res.ok) {
+        const data = await res.json();
+        const summary = (data?.summary || "").trim();
+        if (summary) return summary;
+      }
+    } catch {}
+    return summarizeLocally(title, content);
   }
 
   async function persistStore(payload: Record<string, unknown>) {
@@ -4336,6 +4311,7 @@ export default function Home() {
 
         {activeTab === "tutor" && (
           <TutorView
+            userId={currentUser.userId}
             categories={categories}
             notes={userNotes}
             onAddNote={addNote}

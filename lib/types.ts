@@ -148,6 +148,21 @@ export interface MaterialChatSession {
   updatedAt: string;
 }
 
+// ---- AI Tutor (per-account, synced across devices) ----
+export interface TutorMessage {
+  role: "user" | "assistant";
+  content: string;
+  ts: number;
+  isError?: boolean;
+}
+
+export interface TutorChatSession {
+  id: string;
+  title: string;
+  messages: TutorMessage[];
+  createdAt: number;
+}
+
 // ---- Anki ----
 export type CardState = "new" | "learn" | "review" | "suspended";
 export type AnkiGrade = 0 | 1 | 2 | 3;

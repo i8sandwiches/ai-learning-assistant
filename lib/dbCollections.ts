@@ -1,4 +1,4 @@
-import { AppState, ChatMessage, LearningMaterial, MaterialChatSession, Quiz, StudyClock, StudyNote, StudySession, Summary, User, UserPreferences } from "@/lib/types";
+import { AppState, ChatMessage, LearningMaterial, MaterialChatSession, Quiz, StudyClock, StudyNote, StudySession, Summary, TutorChatSession, User, UserPreferences } from "@/lib/types";
 import { getAppDb } from "@/lib/mongodb";
 
 export const collectionNames = {
@@ -10,11 +10,13 @@ export const collectionNames = {
   sessions: "studySessions",
   preferences: "preferences",
   materialChats: "materialChats",
-  studyClocks: "studyClocks"
+  studyClocks: "studyClocks",
+  tutorSessions: "tutorSessions"
 } as const;
 
 type PreferencesDocument = UserPreferences & { userId: string };
 type StudyClockDocument = StudyClock & { userId: string };
+type TutorSessionsDocument = { userId: string; sessions: TutorChatSession[] };
 
 const globalForIndexes = globalThis as typeof globalThis & {
   _mongoIndexesPromise?: Promise<void>;
@@ -49,8 +51,22 @@ async function createIndexes() {
     db.collection<PreferencesDocument>(collectionNames.preferences).createIndex({ userId: 1 }, { unique: true }),
     db.collection<MaterialChatSession>(collectionNames.materialChats).createIndex({ userId: 1, materialId: 1 }),
     db.collection<MaterialChatSession>(collectionNames.materialChats).createIndex({ sessionId: 1 }, { unique: true }),
-    db.collection<StudyClockDocument>(collectionNames.studyClocks).createIndex({ userId: 1 }, { unique: true })
+    db.collection<StudyClockDocument>(collectionNames.studyClocks).createIndex({ userId: 1 }, { unique: true }),
+    db.collection<TutorSessionsDocument>(collectionNames.tutorSessions).createIndex({ userId: 1 }, { unique: true })
   ]);
+}
+
+export async function loadTutorSessions(userId: string): Promise<TutorChatSession[]> {
+  const db = await getAppDb();
+  const doc = await db.collection<TutorSessionsDocument>(collectionNames.tutorSessions).findOne({ userId });
+  return doc?.sessions ?? [];
+}
+
+export async function saveTutorSessions(userId: string, sessions: TutorChatSession[]) {
+  const db = await getAppDb();
+  await db
+    .collection<TutorSessionsDocument>(collectionNames.tutorSessions)
+    .updateOne({ userId }, { $set: { userId, sessions: sessions.slice(0, 20) } }, { upsert: true });
 }
 
 export async function loadStudyClock(userId: string): Promise<StudyClock | null> {
