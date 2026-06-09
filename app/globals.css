@@ -148,7 +148,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .app { min-height: 100vh; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
 .sidebar {
   position: sticky; top: 0; height: 100vh; align-self: start; display: flex; flex-direction: column;
-  justify-content: space-between; gap: 24px; padding: 20px 14px; background: var(--sidebar-bg);
+  justify-content: flex-start; gap: 24px; padding: 20px 14px; background: var(--sidebar-bg);
   color: var(--sidebar-ink); overflow-y: auto;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 8px 10px 22px; font-weight: 600; font-size: 15px; color: var(--sidebar-ink); }
@@ -169,7 +169,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 }
 @keyframes navBar { from { transform: scaleY(0); opacity: 0; } to { transform: scaleY(1); opacity: 1; } }
-.user { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 8px 8px 2px; border-top: 1px solid rgba(255,255,255,.06); }
+.user { display: flex; align-items: center; gap: 10px; padding: 8px 8px 2px; border-top: 1px solid rgba(255,255,255,.06); }
 .user-avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, oklch(0.62 0.12 45), oklch(0.55 0.13 35)); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .user-name { color: var(--sidebar-ink); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-sub { color: var(--sidebar-dim); font-size: 11px; }
@@ -480,7 +480,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .note-list-item { text-align: left; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; display: flex; flex-direction: column; gap: 2px; transition: background .15s, border-color .15s, transform .1s; width: 100%; }
 .note-list-item:hover { background: var(--surface-2); transform: translateX(2px); }
 .note-list-row.active .note-list-item { border-color: var(--accent); background: var(--accent-soft); }
-.note-list-item strong { font-size: 13px; font-weight: 600; }
+.note-list-item strong { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; font-size: 13px; font-weight: 600; }
 .note-list-item span { font-size: 11px; color: var(--muted); }
 
 /* context menu (shared: cat + note) */
@@ -1101,7 +1101,9 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 .cat-field-select-wrap { flex: 1; min-width: 100px; }
 .cat-field-btn { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; transition: border-color .15s, background .15s; }
 .cat-field-btn:hover { border-color: var(--accent); background: var(--surface); }
-.cat-field-menu { left: 0; right: auto; min-width: 100%; max-height: 220px; overflow-y: auto; }
+.cat-field-menu { left: 0; right: auto; min-width: 100%; max-height: 240px; overflow-y: auto; padding: 5px; }
+.cat-field-menu button { width: 100%; justify-content: flex-start; white-space: nowrap; }
+.cat-field-menu button .cat-field-opt-name { flex: 1; min-width: 0; text-align: left; }
 .cat-field-menu button.is-active { color: var(--accent-ink); font-weight: 600; background: var(--accent-soft); }
 .cat-manage-btn { display: inline-flex; align-items: center; justify-content: center; width: 34px; flex: none; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-2); cursor: pointer; transition: background .14s, color .14s, border-color .14s; }
 .cat-manage-btn:hover { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
@@ -1356,3 +1358,43 @@ details p { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line
 .summary-attribution { display: flex; align-items: center; gap: 8px; margin: 8px 0 14px; padding: 9px 12px; background: var(--accent-soft); color: var(--accent-ink); border: 1px solid oklch(0.88 0.06 200); border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.5; }
 .summary-attribution .lucide-host { color: var(--accent-ink); flex-shrink: 0; }
 .summary-attribution span { font-weight: 500; }
+
+
+/* ===== Sidebar nav divider + settings button ===== */
+.nav-divider { height: 1px; background: rgba(255,255,255,.07); margin: 6px 8px; }
+.nav-settings-btn { opacity: .75; }
+.nav-settings-btn:hover { opacity: 1; }
+
+/* ===== Summary preview pane (Materials view, detail-only) ===== */
+.summary-preview-panel { display: flex; flex-direction: column; min-height: 0; }
+.summary-detail-wrap { flex: 1; min-height: 0; display: flex; }
+.summary-detail-wrap .summary-detail { flex: 1; min-width: 0; overflow-y: auto; }
+.sum-row-info { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex: 1; min-width: 0; background: none; border: 0; cursor: pointer; text-align: left; padding: 0; }
+.sum-row-info strong { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.sum-row-info span { font-size: 11px; color: var(--muted); }
+
+/* ===== AI 튜터 노트 폴더 아코디언 ===== */
+.tutor-folder-group { display: flex; flex-direction: column; gap: 0; }
+.tutor-folder-item { display: flex; align-items: center; gap: 0; width: 100%; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--radius-sm); overflow: hidden; transition: border-color .15s; }
+.tutor-folder-toggle { display: flex; align-items: center; gap: 8px; flex: 1; padding: 9px 8px 9px 10px; background: none; border: none; cursor: pointer; text-align: left; color: var(--ink-2); font-size: 13px; font-weight: 500; min-width: 0; }
+.tutor-folder-chevron-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 36px; flex: none; background: none; border: none; border-left: 1px solid var(--line-2); cursor: pointer; color: var(--muted); transition: background .15s; }
+.tutor-folder-chevron-btn:hover { background: rgba(0,0,0,.04); color: var(--ink); }
+.tutor-folder-notes { display: flex; flex-direction: column; gap: 1px; background: var(--surface); border: 1px solid var(--line-2); border-top: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); padding: 4px; }
+.tutor-folder-empty { margin: 0; padding: 8px 10px; font-size: 12px; color: var(--muted); text-align: center; }
+.tutor-note-row { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 4px; font-size: 12px; color: var(--ink-2); }
+.tutor-note-row:hover { background: var(--surface-2); }
+.tutor-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tutor-folder-count { font-size: 11px; font-weight: 600; color: var(--muted); padding: 1px 7px; background: rgba(0,0,0,.04); border-radius: 999px; flex: none; }
+.tutor-folder-manage { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 8px 10px; margin-top: 4px; background: none; border: 1px dashed var(--line); border-radius: var(--radius-sm); color: var(--muted); font-size: 12px; cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s; }
+.tutor-folder-manage:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+/* ===== AI 튜터 세션 이름 변경 인라인 인풋 ===== */
+.tutor-session-row.is-renaming { gap: 6px; padding: 2px 6px; }
+.tutor-session-rename-input { flex: 1; min-width: 0; height: 26px; padding: 0 7px; font-size: 12px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink); outline: none; }
+
+/* ===== 노트 목록 AI 튜터 뱃지 ===== */
+.note-tutor-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 5px 1px 4px; background: oklch(0.93 0.04 260); color: oklch(0.45 0.15 260); border-radius: 999px; font-size: 9.5px; font-weight: 700; border: 1px solid oklch(0.82 0.07 260); flex: none; line-height: 1; margin-right: 2px; }
+.note-tutor-badge .lucide-host { color: oklch(0.45 0.15 260); }
+
+/* ===== 자료/요약 통합 소제목 ===== */
+.mat-sub-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 8px 10px 3px 28px; margin: 0; }
