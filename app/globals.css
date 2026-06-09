@@ -172,7 +172,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .user { display: flex; align-items: center; gap: 10px; padding: 8px 8px 2px; border-top: 1px solid rgba(255,255,255,.06); }
 .user-avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, oklch(0.62 0.12 45), oklch(0.55 0.13 35)); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .user-name { color: var(--sidebar-ink); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-sub { color: var(--sidebar-dim); font-size: 11px; }
+.user-sub { color: var(--sidebar-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-logout { width: 28px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.08); border-radius: 7px; background: transparent; color: var(--sidebar-dim); transition: background .14s, color .14s; }
 .user-logout:hover { background: rgba(255,255,255,.06); color: var(--sidebar-ink); }
 
